@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/* ---------------------------------------
+   ENUM（DB の日本語 ENUM に合わせる）
+--------------------------------------- */
+
+enum MovesType {
+  通常技
+  必殺技
+  SA
+  その他
+}
+
+enum PlayStyle {
+  モダン
+  クラシック
+}
+
+/* ---------------------------------------
+   TABLE: users
+--------------------------------------- */
+model User {
+  id              Int        @id @default(autoincrement())
+  name            String
+  email           String     @unique
+  password        String
+  playStyle       PlayStyle  @map("play_style")
+  mainCharacterId Int?       @map("main_character_id")
+  profile         String?    @db.Text
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  mainCharacter   Character? @relation("UserMainCharacter", fields: [mainCharacterId], references: [id])
+  combos          Combo[]
+  comments        Comment[]
+  favorites       Favorite[]
+  ratings         Rating[]
+
+  @@map("users")
+}
+
+/* ---------------------------------------
+   TABLE: characters
+--------------------------------------- */
+model Character {
+  id          Int      @id @default(autoincrement())
+  name        String
+  image       String?
+  description String?  @db.Text
+
+  moves       Move[]
+  combos      Combo[]
+  users       User[]   @relation("UserMainCharacter")
+
+  @@map("characters")
+}
+
+/* ---------------------------------------
+   TABLE: moves
+--------------------------------------- */
+model Move {
+  id          Int        @id @default(autoincrement())
+  characterId Int        @map("character_id")
+  name        String
+  input       String?
+  type        MovesType  @default(通常技)
+
+  character   Character  @relation(fields: [characterId], references: [id])
+  combos      Combo[]    @relation("StarterMove")
+  steps       ComboStep[]
+
+  @@map("moves")
+}
+
+/* ---------------------------------------
+   TABLE: attributes
+--------------------------------------- */
+model Attribute {
+  id          Int         @id @default(autoincrement())
+  name        String
+  description String?      @db.Text
+
+  combos      Combo[]
+  steps       ComboStep[]
+
+  @@map("attributes")
+}
+
+/* ---------------------------------------
+   TABLE: conditions
+--------------------------------------- */
+model Condition {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?   @db.Text
+
+  combos      Combo[]
+
+  @@map("conditions")
+}
+
+/* ---------------------------------------
+   TABLE: combos
+--------------------------------------- */
+model Combo {
+  id            Int        @id @default(autoincrement())
+  parentComboId Int?       @map("parent_combo_id")
+  userId        Int        @map("user_id")
+  characterId   Int        @map("character_id")
+  starterMoveId Int        @map("starter_move_id")
+  conditionId   Int        @map("condition_id")
+  attributeId   Int?       @map("attribute_id")
+  playStyle     PlayStyle  // enum('モダン','クラシック')
+  comboText     String     @map("combo_text") @db.Text
+  damage        Int?
+  frame         Int?
+  version       String?    @default("1.00")
+  description   String?    @db.Text
+  videoUrl      String?    @map("video_url")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  user          User       @relation(fields: [userId], references: [id])
+  character     Character  @relation(fields: [characterId], references: [id])
+  starterMove   Move       @relation("StarterMove", fields: [starterMoveId], references: [id])
+  condition     Condition  @relation(fields: [conditionId], references: [id])
+  attribute     Attribute? @relation(fields: [attributeId], references: [id])
+  parentCombo   Combo?     @relation("ComboParent", fields: [parentComboId], references: [id])
+  childCombos   Combo[]    @relation("ComboParent")
+
+  tags          ComboTag[]
+  comments      Comment[]
+  favorites     Favorite[]
+  ratings       Rating[]
+  steps         ComboStep[]
+
+  @@map("combos")
+}
+
+/* ---------------------------------------
+   TABLE: tags
+--------------------------------------- */
+model Tag {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String?    @db.Text
+
+  combos      ComboTag[]
+
+  @@map("tags")
+}
+
+/* ---------------------------------------
+   TABLE: combo_tags
+--------------------------------------- */
+model ComboTag {
+  comboId Int @map("combo_id")
+  tagId   Int @map("tag_id")
+
+  combo   Combo @relation(fields: [comboId], references: [id])
+  tag     Tag   @relation(fields: [tagId], references: [id])
+
+  @@id([comboId, tagId])
+  @@map("combo_tags")
+}
+
+/* ---------------------------------------
+   TABLE: comments
+--------------------------------------- */
+model Comment {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
+
+/* ---------------------------------------
+   TABLE: favorites
+--------------------------------------- */
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([comboId, userId])
+  @@map("favorites")
+}
+
+/* ---------------------------------------
+   TABLE: ratings
+--------------------------------------- */
+model Rating {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  value     Int      @map("value")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([comboId, userId])
+  @@map("ratings")
+}
+
+/* ---------------------------------------
+   ★ 新規追加（DB には存在しない）combo_steps
+--------------------------------------- */
+model ComboStep {
+  id          Int        @id @default(autoincrement())
+  comboId     Int        @map("combo_id")
+  order       Int        @map("order_index")
+  moveId      Int?       @map("move_id")
+  attributeId Int?       @map("attribute_id")
+  note        String?
+
+  combo       Combo      @relation(fields: [comboId], references: [id])
+  move        Move?      @relation(fields: [moveId], references: [id])
+  attribute   Attribute? @relation(fields: [attributeId], references: [id])
+
+  @@unique([comboId, order])
+  @@map("combo_steps")
+}

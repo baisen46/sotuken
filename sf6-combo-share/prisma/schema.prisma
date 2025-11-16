@@ -7,149 +7,231 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model attributes {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(50)
-  description String?  @db.Text
-  combos      combos[]
+//
+// ENUM
+//
+enum ComboPlayStyle {
+  MODERN
+  CLASSIC
 }
 
-model characters {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(50)
-  image       String?  @db.VarChar(255)
-  description String?  @db.Text
-  combos      combos[]
-  moves       moves[]
-  users       users[]
+enum ConditionType {
+  NORMAL
+  COUNTER
+  PUNISH
+  FORCEDOWN
 }
 
-model combo_tags {
-  combo_id Int
-  tag_id   Int
-  combos   combos @relation(fields: [combo_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "combo_tags_ibfk_1")
-  tags     tags   @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "combo_tags_ibfk_2")
-
-  @@id([combo_id, tag_id])
-  @@index([tag_id], map: "tag_id")
+enum AttributeType {
+  NONE
+  OD
+  CR
+  PR
 }
 
-model combos {
-  id              Int               @id @default(autoincrement())
-  parent_combo_id Int?
-  user_id         Int
-  character_id    Int
-  starter_move_id Int
-  condition_id    Int
-  attribute_id    Int?
-  play_style String?
-  combo_text      String            @db.Text
-  damage          Int?
-  frame           Int?
-  version         String?           @default("1.00") @db.VarChar(20)
-  description     String?           @db.Text
-  video_url       String?           @db.VarChar(255)
-  created_at      DateTime?         @default(now()) @db.DateTime(0)
-  combo_tags      combo_tags[]
-  users           users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "combos_ibfk_1")
-  characters      characters        @relation(fields: [character_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "combos_ibfk_2")
-  moves           moves             @relation(fields: [starter_move_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "combos_ibfk_3")
-  conditions      conditions        @relation(fields: [condition_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "combos_ibfk_4")
-  attributes      attributes?       @relation(fields: [attribute_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "combos_ibfk_5")
-  combos          combos?           @relation("combosTocombos", fields: [parent_combo_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "combos_ibfk_6")
-  other_combos    combos[]          @relation("combosTocombos")
-  comments        comments[]
-  favorites       favorites[]
-  ratings         ratings[]
+//
+// USERS
+//
+model User {
+  id          Int       @id @default(autoincrement())
+  name        String
+  email       String    @unique
+  password    String
+  profile     String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
 
-  @@index([attribute_id], map: "attribute_id")
-  @@index([character_id], map: "character_id")
-  @@index([condition_id], map: "condition_id")
-  @@index([parent_combo_id], map: "parent_combo_id")
-  @@index([starter_move_id], map: "starter_move_id")
-  @@index([user_id], map: "user_id")
+  combos      Combo[]
+  comments    Comment[]
+  favorites   Favorite[]
+  ratings     Rating[]
+
+  @@map("users")
 }
 
-model comments {
-  id         Int       @id @default(autoincrement())
-  combo_id   Int
-  user_id    Int
-  comment    String    @db.Text
-  created_at DateTime? @default(now()) @db.DateTime(0)
-  combos     combos    @relation(fields: [combo_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "comments_ibfk_1")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "comments_ibfk_2")
+//
+// CHARACTERS
+//
+model Character {
+  id          Int       @id @default(autoincrement())
+  name        String
+  image       String?
+  description String?   @db.Text
 
-  @@index([combo_id], map: "combo_id")
-  @@index([user_id], map: "user_id")
+  moves       Move[]
+  combos      Combo[]
+
+  @@map("characters")
 }
 
-model conditions {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(50)
-  description String?  @db.Text
-  combos      combos[]
+//
+// MOVES（必殺技のみ）
+//
+model Move {
+  id          Int       @id @default(autoincrement())
+  characterId Int       @map("character_id")
+  name        String
+  input       String?
+
+  character   Character @relation(fields: [characterId], references: [id])
+  steps       ComboStep[]
+
+  @@map("moves")
 }
 
-model favorites {
-  id         Int       @id @default(autoincrement())
-  combo_id   Int
-  user_id    Int
-  created_at DateTime? @default(now()) @db.DateTime(0)
-  combos     combos    @relation(fields: [combo_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "favorites_ibfk_1")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "favorites_ibfk_2")
+//
+// ATTRIBUTES
+//
+model Attribute {
+  id          Int            @id @default(autoincrement())
+  type        AttributeType  @map("type")
+  description String?        @db.Text
 
-  @@unique([combo_id, user_id], map: "combo_id")
-  @@index([user_id], map: "user_id")
+  combos      Combo[]
+  steps       ComboStep[]
+
+  @@map("attributes")
 }
 
-model moves {
-  id           Int         @id @default(autoincrement())
-  character_id Int
-  name         String      @db.VarChar(50)
-  input        String?     @db.VarChar(50)
-  type String? @default(dbgenerated("通常技"))
-  combos       combos[]
-  characters   characters  @relation(fields: [character_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "moves_ibfk_1")
+//
+// CONDITIONS
+//
+model Condition {
+  id          Int            @id @default(autoincrement())
+  type        ConditionType  @map("type")
+  description String?        @db.Text
 
-  @@index([character_id], map: "character_id")
+  combos      Combo[]
+
+  @@map("conditions")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model ratings {
-  id         Int       @id @default(autoincrement())
-  combo_id   Int
-  user_id    Int
-  value      Int       @db.TinyInt
-  created_at DateTime? @default(now()) @db.DateTime(0)
-  combos     combos    @relation(fields: [combo_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "ratings_ibfk_1")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "ratings_ibfk_2")
+//
+// COMBOS（starterMoveId 削除済）
+//
+model Combo {
+  id            Int             @id @default(autoincrement())
+  parentComboId Int?            @map("parent_combo_id")
+  userId        Int             @map("user_id")
+  characterId   Int             @map("character_id")
+  conditionId   Int             @map("condition_id")
+  attributeId   Int?            @map("attribute_id")
+  playStyle     ComboPlayStyle  @map("play_style")
+  comboText     String          @map("combo_text") @db.Text
+  damage        Int?
+  frame         Int?
+  version       String?         @default("1.00")
+  description   String?         @db.Text
+  videoUrl      String?         @map("video_url")
+  createdAt     DateTime        @default(now()) @map("created_at")
 
-  @@unique([combo_id, user_id], map: "combo_id")
-  @@index([user_id], map: "user_id")
+  user          User            @relation(fields: [userId], references: [id])
+  character     Character       @relation(fields: [characterId], references: [id])
+  condition     Condition       @relation(fields: [conditionId], references: [id])
+  attribute     Attribute?      @relation(fields: [attributeId], references: [id])
+
+  parentCombo   Combo?          @relation("ComboParent", fields: [parentComboId], references: [id])
+  childCombos   Combo[]         @relation("ComboParent")
+
+  steps         ComboStep[]
+  tags          ComboTag[]
+  comments      Comment[]
+  favorites     Favorite[]
+  ratings       Rating[]
+
+  @@map("combos")
 }
 
-model tags {
-  id          Int          @id @default(autoincrement())
-  name        String       @db.VarChar(50)
-  description String?      @db.Text
-  combo_tags  combo_tags[]
+//
+// COMBO STEPS
+//
+model ComboStep {
+  id          Int        @id @default(autoincrement())
+  comboId     Int        @map("combo_id")
+  order       Int        @map("order_index")
+  moveId      Int?       @map("move_id")
+  attributeId Int?       @map("attribute_id")
+  note        String?
+
+  combo       Combo      @relation(fields: [comboId], references: [id])
+  move        Move?      @relation(fields: [moveId], references: [id])
+  attribute   Attribute? @relation(fields: [attributeId], references: [id])
+
+  @@unique([comboId, order])
+  @@map("combo_steps")
 }
 
-model users {
-  id                Int               @id @default(autoincrement())
-  name              String            @db.VarChar(50)
-  email             String            @unique(map: "email") @db.VarChar(100)
-  password          String            @db.VarChar(255)
-  play_style String? @default(dbgenerated("モダン"))
-  main_character_id Int?
-  profile           String?           @db.Text
-  created_at        DateTime?         @default(now()) @db.DateTime(0)
-  combos            combos[]
-  comments          comments[]
-  favorites         favorites[]
-  ratings           ratings[]
-  characters        characters?       @relation(fields: [main_character_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "users_ibfk_1")
+//
+// TAGS
+//
+model Tag {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String?    @db.Text
 
-  @@index([main_character_id], map: "main_character_id")
+  combos      ComboTag[]
+
+  @@map("tags")
 }
 
+//
+// COMBO_TAGS
+//
+model ComboTag {
+  comboId Int @map("combo_id")
+  tagId   Int @map("tag_id")
+
+  combo   Combo @relation(fields: [comboId], references: [id])
+  tag     Tag   @relation(fields: [tagId], references: [id])
+
+  @@id([comboId, tagId])
+  @@map("combo_tags")
+}
+
+//
+// COMMENTS
+//
+model Comment {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
+
+//
+// FAVORITES
+//
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([comboId, userId])
+  @@map("favorites")
+}
+
+//
+// RATINGS
+//
+model Rating {
+  id        Int      @id @default(autoincrement())
+  comboId   Int      @map("combo_id")
+  userId    Int      @map("user_id")
+  value     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  combo     Combo    @relation(fields: [comboId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([comboId, userId])
+  @@map("ratings")
+}
