@@ -184,19 +184,20 @@ export default function ComboInputPage() {
 
           <h3>攻撃 / 操作</h3>
 
-          {/* 弱 中 強 ＞ */}
-          <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-            {circle("弱", "#7bd2ff")}
-            {circle("中", "#ffe680")}
-            {circle("強", "#ff7b7b")}
-            {circle(">", "white")}
-          </div>
+         {/* アケコン 6ボタン */}
+<h3>攻撃ボタン（6入力）</h3>
+<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 70px)", gap: "12px" }}>
+  {/* 上段：弱P / 中P / 強P */}
+  <button onClick={() => add("LP")} style={{ ...commonButton, background: "#cce8ff" }}>LP</button>
+  <button onClick={() => add("MP")} style={{ ...commonButton, background: "#ffe9a8" }}>MP</button>
+  <button onClick={() => add("HP")} style={{ ...commonButton, background: "#ffb3b3" }}>HP</button>
 
-          {/* P K （丸ボタン） */}
-          <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-            {circle("P", "#7bb7ff")}
-            {circle("K", "#89ff8d")}
-          </div>
+  {/* 下段：弱K / 中K / 強K */}
+  <button onClick={() => add("LK")} style={{ ...commonButton, background: "#d6ffc7" }}>LK</button>
+  <button onClick={() => add("MK")} style={{ ...commonButton, background: "#f8ffbf" }}>MK</button>
+  <button onClick={() => add("HK")} style={{ ...commonButton, background: "#ffa8d8" }}>HK</button>
+</div>
+
 
           {/* その他のボタン */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
