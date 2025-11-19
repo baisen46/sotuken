@@ -42,13 +42,25 @@ export default function ComboInputPage() {
   const listRef = useRef<HTMLDivElement>(null);
 
   // ▼ キャラ
-  useEffect(() => {
-    (async () => {
-      const res = await fetch(`/api/moves?characterId=${selectedCharacter}`);
-setMoves(await res.json());
+// ▼ キャラ一覧
+useEffect(() => {
+  const loadCharacters = async () => {
+    try {
+      const res = await fetch("/api/characters", { cache: "no-store" });
+      if (!res.ok) {
+        console.error("キャラ取得失敗:", res.status);
+        return;
+      }
+      const data = await res.json();
+      console.log("キャラ取得成功:", data);
+      setCharacters(data);
+    } catch (e) {
+      console.error("キャラ取得中エラー:", e);
+    }
+  };
 
-    })();
-  }, []);
+  loadCharacters();
+}, []);
 
   // ▼ 必殺技
   useEffect(() => {
