@@ -139,7 +139,7 @@ export default function ComboInputPage() {
   );
 
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
-  const actionButtons = ["DR", "DI", "CR", "OD", "SA", "A"];
+  const actionButtons = ["DR", "DI", "CR", "OD", "SA", ];
 
   // ▼ コンボ保存
   const saveCombo = async () => {
@@ -346,6 +346,35 @@ export default function ComboInputPage() {
             <button onClick={() => add("弱K")} style={commonButton}>弱K</button>
             <button onClick={() => add("中K")} style={commonButton}>中K</button>
             <button onClick={() => add("強K")} style={commonButton}>強K</button>
+
+            
+<div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(6, 60px)", // ← 6個を横1列で固定
+    gap: "8px",
+    marginBottom: "20px",
+  }}
+>
+  {actionButtons.map((b) => (
+    <button
+      key={b}
+      onClick={() => add(b)}
+      style={{
+        padding: "6px",
+        width: "60px",    // ← 一律の横幅
+        height: "40px",
+        borderRadius: "6px",
+        border: "1px solid gray",
+        background: "white",
+        cursor: "pointer",
+      }}
+    >
+      {b}
+    </button>
+  ))}
+</div>
+
           </div>
 
           {/* ダメージ */}
