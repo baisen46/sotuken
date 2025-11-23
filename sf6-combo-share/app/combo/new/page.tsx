@@ -13,22 +13,37 @@ type Character = {
   name: string;
 };
 
+type StepItem = {
+  label: string;
+  moveId: number | null;
+  attributeId: number | null;
+};
+
 export default function ComboInputPage() {
+  // ▼ キャラ
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<number | null>(null);
+
+  // ▼ 必殺技
   const [moves, setMoves] = useState<Move[]>([]);
-  const [history, setHistory] = useState<string[]>([]);
-  const comboText = history.join(" ");
+
+  // ▼ 入力履歴（string ではなく構造化）
+  const [history, setHistory] = useState<StepItem[]>([]);
+
+  // ▼ コンボテキスト（ラベルだけ結合）
+  const comboText = history.map((h) => h.label).join(" ");
+
+  // ▼ ダメージ
   const [damage, setDamage] = useState<string>("");
 
-  // ▼ 操作タイプ（プルダウン）
+  // ▼ 操作タイプ
   const [playStyle, setPlayStyle] = useState<"モダン" | "クラシック">("モダン");
 
-  // ▼ ヒット状況（プルダウン）
+  // ▼ ヒット状況
   const hitOptions = ["ノーマル", "カウンター", "パニッシュカウンター", "フォースダウン"] as const;
   const [hitType, setHitType] = useState<string>("ノーマル");
 
-  // ▼ 属性（折りたたみ＋複数選択）
+  // ▼ 属性（折りたたみ）
   const [attrOpen, setAttrOpen] = useState(false);
   const attributeOptions = ["ダメージ重視", "起き攻め重視", "運び重視"];
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
@@ -41,43 +56,47 @@ export default function ComboInputPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // ▼ キャラ
-// ▼ キャラ一覧
-useEffect(() => {
-  const loadCharacters = async () => {
-    try {
+  // ▼ キャラ一覧取得
+  useEffect(() => {
+    const loadCharacters = async () => {
       const res = await fetch("/api/characters", { cache: "no-store" });
-      if (!res.ok) {
-        console.error("キャラ取得失敗:", res.status);
-        return;
-      }
       const data = await res.json();
-      console.log("キャラ取得成功:", data);
       setCharacters(data);
-    } catch (e) {
-      console.error("キャラ取得中エラー:", e);
-    }
-  };
+    };
+    loadCharacters();
+  }, []);
 
-  loadCharacters();
-}, []);
-
-  // ▼ 必殺技
+  // ▼ 必殺技取得
   useEffect(() => {
     if (!selectedCharacter) return;
+
     (async () => {
       const res = await fetch(`/api/moves/${selectedCharacter}`);
-      setMoves(await res.json());
+      const data = await res.json();
+      setMoves(data);
     })();
   }, [selectedCharacter]);
 
-  const add = (name: string) => setHistory((prev) => [...prev, name]);
+  // ▼ 通常入力 → moveId: null
+  const add = (label: string) => {
+    setHistory((prev) => [...prev, { label, moveId: null, attributeId: null }]);
+  };
+
+  // ▼ 必殺技入力 → moveId あり
+  const addMove = (move: Move) => {
+    setHistory((prev) => [
+      ...prev,
+      { label: move.name, moveId: move.id, attributeId: null },
+    ]);
+  };
+
   const deleteLast = () => setHistory((prev) => prev.slice(0, -1));
   const clearAll = () => setHistory([]);
 
   // ▼ 並び替え
   useEffect(() => {
     if (!listRef.current) return;
+
     Sortable.create(listRef.current, {
       animation: 150,
       onEnd: (evt) => {
@@ -122,11 +141,53 @@ useEffect(() => {
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
   const actionButtons = ["DR", "DI", "CR", "OD", "SA", "A"];
 
+  // ▼ コンボ保存
+  const saveCombo = async () => {
+    if (!selectedCharacter) {
+      alert("キャラを選んでください");
+      return;
+    }
+
+    const steps = history.map((item, index) => ({
+      order: index + 1,
+      moveId: item.moveId,
+      attributeId: item.attributeId,
+      note: item.moveId ? null : item.label,
+    }));
+
+    const body = {
+      userId: 1,
+      characterId: selectedCharacter,
+      conditionId: 1,
+      attributeId: 1,
+      playStyle: playStyle === "モダン" ? "MODERN" : "CLASSIC",
+      comboText,
+      damage: Number(damage) || null,
+      steps,
+      tags: [],
+    };
+
+    const res = await fetch("/api/combos/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+    console.log("SAVE RESULT:", data);
+
+    if (data.success) {
+      alert("保存成功！");
+    } else {
+      alert("エラー: " + JSON.stringify(data));
+    }
+  };
+
   return (
     <div style={{ padding: "20px", maxWidth: "1500px", margin: "0 auto" }}>
       <h1 style={{ marginBottom: "10px" }}>コンボ入力画面（完全強化版）</h1>
 
-      {/* ▲ 上段：キャラ / 操作タイプ / ヒット状況 / 属性 */}
+      {/* 上段 UI */}
       <div
         style={{
           display: "grid",
@@ -135,7 +196,7 @@ useEffect(() => {
           marginBottom: "30px",
         }}
       >
-        {/* ▼ キャラ選択 */}
+        {/* キャラ */}
         <div>
           <label>キャラ：</label>
           <select
@@ -145,12 +206,14 @@ useEffect(() => {
           >
             <option value="">選択してください</option>
             {characters.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
             ))}
           </select>
         </div>
 
-        {/* ▼ 操作タイプ：プルダウン */}
+        {/* 操作タイプ */}
         <div>
           <label>操作タイプ：</label>
           <select
@@ -163,24 +226,23 @@ useEffect(() => {
           </select>
         </div>
 
-        {/* ▼ ヒット状況：プルダウン */}
+        {/* ヒット状況 */}
         <div>
           <label>ヒット状況：</label>
           <select
             value={hitType}
-            onChange={(e) => {
-              setHitType(e.target.value);
-              add(e.target.value);
-            }}
+            onChange={(e) => add(e.target.value)}
             style={{ padding: "6px", width: "180px" }}
           >
             {hitOptions.map((h) => (
-              <option key={h} value={h}>{h}</option>
+              <option key={h} value={h}>
+                {h}
+              </option>
             ))}
           </select>
         </div>
 
-        {/* ▼ 属性：複数選択＋折りたたみ */}
+        {/* 属性 */}
         <div>
           <label>属性：</label>
           <div>
@@ -230,7 +292,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* ▼ メインエリア（テンキー / 6入力 / 必殺技） */}
+      {/* メイン UI */}
       <div
         style={{
           display: "grid",
@@ -239,7 +301,7 @@ useEffect(() => {
           marginBottom: "240px",
         }}
       >
-        {/* ▼ テンキー */}
+        {/* テンキー */}
         <div style={{ border: "1px solid #ccc", padding: "12px", borderRadius: "8px" }}>
           <h3>テンキー</h3>
           <div
@@ -258,11 +320,10 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* ▼ 攻撃ボタン */}
+        {/* 攻撃ボタン */}
         <div style={{ border: "1px solid #ccc", padding: "12px", borderRadius: "8px" }}>
-          <h3>攻撃ボタン（6入力）</h3>
+          <h3>攻撃ボタン</h3>
 
-          {/* 弱 中 強 > */}
           <div style={{ display: "flex", gap: "12px", marginBottom: "14px" }}>
             {circle("弱", "#7bd2ff")}
             {circle("中", "#ffe680")}
@@ -270,7 +331,6 @@ useEffect(() => {
             {circle(">", "white")}
           </div>
 
-          {/* LP MP HP LK MK HK */}
           <div
             style={{
               display: "grid",
@@ -279,26 +339,16 @@ useEffect(() => {
               marginBottom: "12px",
             }}
           >
-            <button onClick={() => add("LP")} style={{ ...commonButton, background: "#cce8ff" }}>LP</button>
-            <button onClick={() => add("MP")} style={{ ...commonButton, background: "#ffe9a8" }}>MP</button>
-            <button onClick={() => add("HP")} style={{ ...commonButton, background: "#ffb3b3" }}>HP</button>
+            <button onClick={() => add("弱P")} style={commonButton}>弱P</button>
+            <button onClick={() => add("中P")} style={commonButton}>中P</button>
+            <button onClick={() => add("強P")} style={commonButton}>強P</button>
 
-            <button onClick={() => add("LK")} style={{ ...commonButton, background: "#d6ffc7" }}>LK</button>
-            <button onClick={() => add("MK")} style={{ ...commonButton, background: "#f8ffbf" }}>MK</button>
-            <button onClick={() => add("HK")} style={{ ...commonButton, background: "#ffa8d8" }}>HK</button>
+            <button onClick={() => add("弱K")} style={commonButton}>弱K</button>
+            <button onClick={() => add("中K")} style={commonButton}>中K</button>
+            <button onClick={() => add("強K")} style={commonButton}>強K</button>
           </div>
 
-          {/* 操作特殊 */}
-          <h4>操作・特殊</h4>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "20px" }}>
-            {actionButtons.map((b) => (
-              <button key={b} onClick={() => add(b)} style={commonButton}>
-                {b}
-              </button>
-            ))}
-          </div>
-
-          {/* ダメージ入力 */}
+          {/* ダメージ */}
           <h4>ダメージ</h4>
           <input
             type="number"
@@ -314,7 +364,7 @@ useEffect(() => {
           />
         </div>
 
-        {/* ▼ 必殺技 */}
+        {/* 必殺技 */}
         <div
           style={{
             border: "1px solid #ccc",
@@ -327,7 +377,7 @@ useEffect(() => {
           <h3>必殺技</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {moves.map((m) => (
-              <button key={m.id} onClick={() => add(m.name)} style={commonButton}>
+              <button key={m.id} onClick={() => addMove(m)} style={commonButton}>
                 {m.name}
               </button>
             ))}
@@ -335,7 +385,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* ▼ 入力履歴（固定表示） */}
+      {/* 入力履歴（固定） */}
       <div
         style={{
           position: "fixed",
@@ -373,7 +423,7 @@ useEffect(() => {
                 cursor: "grab",
               }}
             >
-              {item}
+              {item.label}
 
               <button
                 onClick={() =>
@@ -395,6 +445,20 @@ useEffect(() => {
         <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
           <button onClick={deleteLast} style={commonButton}>最後を削除</button>
           <button onClick={clearAll} style={commonButton}>全消去</button>
+
+          {/* コンボ保存ボタン */}
+          <button
+            onClick={saveCombo}
+            style={{
+              ...commonButton,
+              background: "#def0ff",
+              border: "2px solid #57a3ff",
+              fontWeight: "bold",
+              marginLeft: "20px",
+            }}
+          >
+            コンボ保存
+          </button>
         </div>
       </div>
     </div>
