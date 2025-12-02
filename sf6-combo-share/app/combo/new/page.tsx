@@ -27,10 +27,10 @@ export default function ComboInputPage() {
   // ▼ 必殺技
   const [moves, setMoves] = useState<Move[]>([]);
 
-  // ▼ 入力履歴（string ではなく構造化）
+  // ▼ 履歴は構造化
   const [history, setHistory] = useState<StepItem[]>([]);
 
-  // ▼ コンボテキスト（ラベルだけ結合）
+  // ▼ コンボテキスト
   const comboText = history.map((h) => h.label).join(" ");
 
   // ▼ ダメージ
@@ -77,12 +77,12 @@ export default function ComboInputPage() {
     })();
   }, [selectedCharacter]);
 
-  // ▼ 通常入力 → moveId: null
+  // ▼ 通常技　→ moveId: null
   const add = (label: string) => {
     setHistory((prev) => [...prev, { label, moveId: null, attributeId: null }]);
   };
 
-  // ▼ 必殺技入力 → moveId あり
+  // ▼ 必殺技　→ moveId あり
   const addMove = (move: Move) => {
     setHistory((prev) => [
       ...prev,
@@ -110,6 +110,7 @@ export default function ComboInputPage() {
     });
   }, []);
 
+  // ▼ 共通ボタンスタイル
   const commonButton = {
     padding: "10px 14px",
     minWidth: "60px",
@@ -120,6 +121,7 @@ export default function ComboInputPage() {
     cursor: "pointer",
   } as const;
 
+  // ▼ 丸ボタン
   const circle = (label: string, bg: string) => (
     <button
       onClick={() => add(label)}
@@ -139,7 +141,7 @@ export default function ComboInputPage() {
   );
 
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
-  const actionButtons = ["DR", "DI", "CR", "OD", "SA", ];
+  const actionButtons = ["J", "DR", "DI", "OD", "SA", "A"]; // ← J を復活
 
   // ▼ コンボ保存
   const saveCombo = async () => {
@@ -331,6 +333,7 @@ export default function ComboInputPage() {
             {circle(">", "white")}
           </div>
 
+          {/* LP〜HK */}
           <div
             style={{
               display: "grid",
@@ -346,35 +349,34 @@ export default function ComboInputPage() {
             <button onClick={() => add("弱K")} style={commonButton}>弱K</button>
             <button onClick={() => add("中K")} style={commonButton}>中K</button>
             <button onClick={() => add("強K")} style={commonButton}>強K</button>
+          </div>
 
-            
-<div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "repeat(6, 60px)", // ← 6個を横1列で固定
-    gap: "8px",
-    marginBottom: "20px",
-  }}
->
-  {actionButtons.map((b) => (
-    <button
-      key={b}
-      onClick={() => add(b)}
-      style={{
-        padding: "6px",
-        width: "60px",    // ← 一律の横幅
-        height: "40px",
-        borderRadius: "6px",
-        border: "1px solid gray",
-        background: "white",
-        cursor: "pointer",
-      }}
-    >
-      {b}
-    </button>
-  ))}
-</div>
-
+          {/* DR / DI / OD / SA / A / J → 横1列 */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(6, 60px)",
+              gap: "8px",
+              marginBottom: "20px",
+            }}
+          >
+            {actionButtons.map((b) => (
+              <button
+                key={b}
+                onClick={() => add(b)}
+                style={{
+                  padding: "6px",
+                  width: "60px",
+                  height: "40px",
+                  borderRadius: "6px",
+                  border: "1px solid gray",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                {b}
+              </button>
+            ))}
           </div>
 
           {/* ダメージ */}
@@ -475,7 +477,7 @@ export default function ComboInputPage() {
           <button onClick={deleteLast} style={commonButton}>最後を削除</button>
           <button onClick={clearAll} style={commonButton}>全消去</button>
 
-          {/* コンボ保存ボタン */}
+          {/* コンボ保存 */}
           <button
             onClick={saveCombo}
             style={{
