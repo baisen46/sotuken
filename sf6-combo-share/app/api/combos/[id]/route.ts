@@ -3,11 +3,11 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    // ★ Next.js 16では params が Promise なので await が必要
-    const { id } = await context.params;
+    // ★ Next.js 16 は params が Promise → 必ず await 必須
+    const { id } = await ctx.params;
 
     const comboId = Number(id);
     if (isNaN(comboId)) {
@@ -24,15 +24,10 @@ export async function GET(
         character: true,
         condition: true,
         attribute: true,
-
         steps: {
           orderBy: { order: "asc" },
-          include: {
-            move: true,
-            attribute: true,
-          },
+          include: { move: true, attribute: true },
         },
-
         tags: { include: { tag: true } },
         favorites: true,
         ratings: true,
@@ -46,16 +41,9 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      combo,
-    });
+    return NextResponse.json({ success: true, combo });
   } catch (err) {
     console.error("GET /api/combos/[id] error:", err);
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-  
 }
