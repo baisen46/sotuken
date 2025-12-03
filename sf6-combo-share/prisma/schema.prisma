@@ -124,6 +124,10 @@ model Combo {
   videoUrl      String?         @map("video_url")
   createdAt     DateTime        @default(now()) @map("created_at")
 
+  // ★ 追加: Dゲージ・SAゲージ消費量
+  driveCost     Int             @default(0) @map("drive_cost")
+  superCost     Int             @default(0) @map("super_cost")
+
   user          User            @relation(fields: [userId], references: [id])
   character     Character       @relation(fields: [characterId], references: [id])
   condition     Condition       @relation(fields: [conditionId], references: [id])
@@ -140,6 +144,7 @@ model Combo {
 
   @@map("combos")
 }
+
 
 //
 // COMBO STEPS

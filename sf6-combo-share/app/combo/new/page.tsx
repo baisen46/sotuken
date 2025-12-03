@@ -27,7 +27,7 @@ export default function ComboInputPage() {
   // ▼ 必殺技
   const [moves, setMoves] = useState<Move[]>([]);
 
-  // ▼ 履歴は構造化
+  // ▼ 履歴（手順のみ）
   const [history, setHistory] = useState<StepItem[]>([]);
 
   // ▼ コンボテキスト
@@ -43,7 +43,7 @@ export default function ComboInputPage() {
   const hitOptions = ["ノーマル", "カウンター", "パニッシュカウンター", "フォースダウン"] as const;
   const [hitType, setHitType] = useState<string>("ノーマル");
 
-  // ▼ 属性（折りたたみ）
+  // ▼ 属性
   const [attrOpen, setAttrOpen] = useState(false);
   const attributeOptions = ["ダメージ重視", "起き攻め重視", "運び重視"];
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
@@ -54,9 +54,21 @@ export default function ComboInputPage() {
     );
   };
 
+  /** ★ 始動技抽出（最初の > まで） */
+  function getStarterText(history: StepItem[]) {
+    const parts: string[] = [];
+
+    for (const h of history) {
+      if (h.label === ">") break;
+      parts.push(h.label);
+    }
+
+    return parts.join(" ");
+  }
+
   const listRef = useRef<HTMLDivElement>(null);
 
-  // ▼ キャラ一覧取得
+  // ▼ キャラ一覧
   useEffect(() => {
     const loadCharacters = async () => {
       const res = await fetch("/api/characters", { cache: "no-store" });
@@ -66,7 +78,7 @@ export default function ComboInputPage() {
     loadCharacters();
   }, []);
 
-  // ▼ 必殺技取得
+  // ▼ 必殺技一覧
   useEffect(() => {
     if (!selectedCharacter) return;
 
@@ -77,12 +89,12 @@ export default function ComboInputPage() {
     })();
   }, [selectedCharacter]);
 
-  // ▼ 通常技　→ moveId: null
+  // ▼ 通常技
   const add = (label: string) => {
     setHistory((prev) => [...prev, { label, moveId: null, attributeId: null }]);
   };
 
-  // ▼ 必殺技　→ moveId あり
+  // ▼ 必殺技
   const addMove = (move: Move) => {
     setHistory((prev) => [
       ...prev,
@@ -110,7 +122,6 @@ export default function ComboInputPage() {
     });
   }, []);
 
-  // ▼ 共通ボタンスタイル
   const commonButton = {
     padding: "10px 14px",
     minWidth: "60px",
@@ -121,7 +132,6 @@ export default function ComboInputPage() {
     cursor: "pointer",
   } as const;
 
-  // ▼ 丸ボタン
   const circle = (label: string, bg: string) => (
     <button
       onClick={() => add(label)}
@@ -141,14 +151,34 @@ export default function ComboInputPage() {
   );
 
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
-  const actionButtons = ["J", "DR", "DI", "OD", "SA", "A"]; // ← J を復活
+  const actionButtons = ["J", "DR", "DI", "OD", "SA", "A"];
 
-  // ▼ コンボ保存
+  /** ▼ コンボ保存 */
   const saveCombo = async () => {
     if (!selectedCharacter) {
       alert("キャラを選んでください");
       return;
     }
+
+    // ★ 始動技
+    const starterText = getStarterText(history);
+
+    // ★ Dゲージ と SAゲージ
+    let driveCost = 0;
+    let superCost = 0;
+
+    history.forEach((item) => {
+      const n = item.label;
+
+      if (n.includes("DR")) driveCost += 1;
+      if (n.includes("DI")) driveCost += 1;
+      if (n.includes("OD")) driveCost += 2;
+      if (n.includes("CR")) driveCost += 3;
+
+      if (n.includes("SA1")) superCost += 1;
+      if (n.includes("SA2")) superCost += 2;
+      if (n.includes("SA3")) superCost += 3;
+    });
 
     const steps = history.map((item, index) => ({
       order: index + 1,
@@ -167,6 +197,11 @@ export default function ComboInputPage() {
       damage: Number(damage) || null,
       steps,
       tags: [],
+      starterText,  // ★ 新規追加
+      driveCost,
+      superCost,
+      hitType,                // まだ未使用（後でタグ化 or カラム化）
+      selectedAttributes,     // まだ未使用（後でタグ化）
     };
 
     const res = await fetch("/api/combos/create", {
@@ -233,7 +268,7 @@ export default function ComboInputPage() {
           <label>ヒット状況：</label>
           <select
             value={hitType}
-            onChange={(e) => add(e.target.value)}
+            onChange={(e) => setHitType(e.target.value)}
             style={{ padding: "6px", width: "180px" }}
           >
             {hitOptions.map((h) => (
@@ -281,7 +316,6 @@ export default function ComboInputPage() {
                       checked={selectedAttributes.includes(attr)}
                       onChange={() => {
                         toggleAttribute(attr);
-                        add(attr);
                       }}
                       style={{ marginRight: "6px" }}
                     />
@@ -333,7 +367,6 @@ export default function ComboInputPage() {
             {circle(">", "white")}
           </div>
 
-          {/* LP〜HK */}
           <div
             style={{
               display: "grid",
@@ -351,7 +384,6 @@ export default function ComboInputPage() {
             <button onClick={() => add("強K")} style={commonButton}>強K</button>
           </div>
 
-          {/* DR / DI / OD / SA / A / J → 横1列 */}
           <div
             style={{
               display: "grid",
@@ -379,7 +411,6 @@ export default function ComboInputPage() {
             ))}
           </div>
 
-          {/* ダメージ */}
           <h4>ダメージ</h4>
           <input
             type="number"
@@ -416,7 +447,7 @@ export default function ComboInputPage() {
         </div>
       </div>
 
-      {/* 入力履歴（固定） */}
+      {/* 入力履歴 */}
       <div
         style={{
           position: "fixed",
@@ -457,9 +488,7 @@ export default function ComboInputPage() {
               {item.label}
 
               <button
-                onClick={() =>
-                  setHistory(history.filter((_, i) => i !== index))
-                }
+                onClick={() => setHistory(history.filter((_, i) => i !== index))}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -477,7 +506,6 @@ export default function ComboInputPage() {
           <button onClick={deleteLast} style={commonButton}>最後を削除</button>
           <button onClick={clearAll} style={commonButton}>全消去</button>
 
-          {/* コンボ保存 */}
           <button
             onClick={saveCombo}
             style={{

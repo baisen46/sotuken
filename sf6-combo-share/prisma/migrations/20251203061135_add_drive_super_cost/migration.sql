@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `combos` ADD COLUMN `drive_cost` INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN `super_cost` INTEGER NOT NULL DEFAULT 0;

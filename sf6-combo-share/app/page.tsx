@@ -1,33 +1,37 @@
-// app/page.tsx
-
 import Link from "next/link";
+import { prisma } from "@/lib/prisma";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const characters = await prisma.character.findMany({
+    orderBy: { id: "asc" },
+  });
+
   return (
-    <div className="max-w-xl mx-auto p-8 space-y-6">
-
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold">SF6 Combo Share</h1>
+      <p className="text-gray-600">キャラを選択してコンボ一覧を表示できます。</p>
 
-      <p className="text-gray-600">
-        ストリートファイター6のコンボを共有するためのサイトです。
-      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        {characters.map((ch) => (
+          <Link
+            key={ch.id}
+            href={`/characters/${ch.id}/combos`}
+            className="border rounded-lg p-4 flex flex-col items-center justify-center 
+                       hover:bg-gray-100 transition"
+          >
+            {/* 画像がある場合はここに */}
+            {ch.image && (
+              <img
+                src={ch.image}
+                alt={ch.name}
+                className="w-16 h-16 object-contain mb-2"
+              />
+            )}
 
-      <div className="space-y-3">
-
-        <Link
-          href="/combos"
-          className="block w-full bg-blue-600 text-white text-center py-2 rounded-md hover:bg-blue-700"
-        >
-          コンボ一覧を見る
-        </Link>
-
-        <Link
-          href="/combo/new"
-          className="block w-full bg-green-600 text-white text-center py-2 rounded-md hover:bg-green-700"
-        >
-          コンボを投稿する
-        </Link>
-
+            {/* 画像がない場合も名前は表示 */}
+            <span className="text-sm font-semibold">{ch.name}</span>
+          </Link>
+        ))}
       </div>
     </div>
   );
