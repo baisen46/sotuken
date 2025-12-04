@@ -169,14 +169,13 @@ model ComboStep {
 // TAGS
 //
 model Tag {
-  id          Int        @id @default(autoincrement())
-  name        String
-  description String?    @db.Text
-
-  combos      ComboTag[]
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  comboTags ComboTag[]
 
   @@map("tags")
 }
+
 
 //
 // COMBO_TAGS

@@ -43,7 +43,7 @@ export default function ComboInputPage() {
   const hitOptions = ["ノーマル", "カウンター", "パニッシュカウンター", "フォースダウン"] as const;
   const [hitType, setHitType] = useState<string>("ノーマル");
 
-  // ▼ 属性
+  // ▼ 属性（ダメ重視/起き攻め重視/運び重視）
   const [attrOpen, setAttrOpen] = useState(false);
   const attributeOptions = ["ダメージ重視", "起き攻め重視", "運び重視"];
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
@@ -51,6 +51,30 @@ export default function ComboInputPage() {
   const toggleAttribute = (attr: string) => {
     setSelectedAttributes((prev) =>
       prev.includes(attr) ? prev.filter((a) => a !== attr) : [...prev, attr]
+    );
+  };
+
+  // ▼ カテゴリ（1つだけ選択）
+  const categoryOptions = ["CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+
+  // ▼ 属性タグ（複数選択）
+  const propertyTagOptions = [
+    "立ち限定",
+    "デカキャラ限定",
+    "目押しコン",
+    "密着限定",
+    "入れ替えコン",
+    "端付近",
+    "端限定",
+    "中央以上",
+    "被画面端",
+  ] as const;
+  const [selectedPropertyTags, setSelectedPropertyTags] = useState<string[]>([]);
+
+  const togglePropertyTag = (tag: string) => {
+    setSelectedPropertyTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
   };
 
@@ -187,6 +211,14 @@ export default function ComboInputPage() {
       note: item.moveId ? null : item.label,
     }));
 
+    // ▼ タグ統合（ヒット状況＋属性＋カテゴリ＋属性タグ）
+    const tags = [
+      hitType,                   // ヒット状況
+      ...selectedAttributes,     // ダメ重視/起き攻め重視/運び重視
+      selectedCategory,          // カテゴリ（CRコン など）※1つだけ
+      ...selectedPropertyTags,   // 立ち限定 など
+    ].filter(Boolean);
+
     const body = {
       userId: 1,
       characterId: selectedCharacter,
@@ -196,12 +228,10 @@ export default function ComboInputPage() {
       comboText,
       damage: Number(damage) || null,
       steps,
-      tags: [],
-      starterText,  // ★ 新規追加
+      tags,
+      starterText,
       driveCost,
       superCost,
-      hitType,                // まだ未使用（後でタグ化 or カラム化）
-      selectedAttributes,     // まだ未使用（後でタグ化）
     };
 
     const res = await fetch("/api/combos/create", {
@@ -228,7 +258,7 @@ export default function ComboInputPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "240px 200px 200px 260px",
+          gridTemplateColumns: "repeat(4, minmax(200px, 1fr))",
           gap: "20px",
           marginBottom: "30px",
         }}
@@ -279,7 +309,7 @@ export default function ComboInputPage() {
           </select>
         </div>
 
-        {/* 属性 */}
+        {/* 属性（ダメ重視/起き攻め重視/運び重視） */}
         <div>
           <label>属性：</label>
           <div>
@@ -324,6 +354,62 @@ export default function ComboInputPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* カテゴリ（1つ選択） */}
+        <div>
+          <label>カテゴリ：</label>
+          <div
+            style={{
+              border: "1px solid #ccc",
+              padding: "8px",
+              borderRadius: "6px",
+              background: "#fafafa",
+              width: "200px",
+            }}
+          >
+            {categoryOptions.map((cat) => (
+              <label key={cat} style={{ display: "block", marginBottom: "4px" }}>
+                <input
+                  type="radio"
+                  name="combo-category"
+                  value={cat}
+                  checked={selectedCategory === cat}
+                  onChange={() => setSelectedCategory(cat)}
+                  style={{ marginRight: "6px" }}
+                />
+                {cat}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* 属性タグ（複数選択） */}
+        <div>
+          <label>属性タグ：</label>
+          <div
+            style={{
+              border: "1px solid #ccc",
+              padding: "8px",
+              borderRadius: "6px",
+              background: "#fafafa",
+              width: "220px",
+              maxHeight: "160px",
+              overflowY: "auto",
+            }}
+          >
+            {propertyTagOptions.map((tag) => (
+              <label key={tag} style={{ display: "block", marginBottom: "4px" }}>
+                <input
+                  type="checkbox"
+                  checked={selectedPropertyTags.includes(tag)}
+                  onChange={() => togglePropertyTag(tag)}
+                  style={{ marginRight: "6px" }}
+                />
+                {tag}
+              </label>
+            ))}
           </div>
         </div>
       </div>
@@ -411,19 +497,21 @@ export default function ComboInputPage() {
             ))}
           </div>
 
-          <h4>ダメージ</h4>
-          <input
-            type="number"
-            value={damage}
-            onChange={(e) => setDamage(e.target.value)}
-            style={{
-              padding: "6px",
-              width: "120px",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-              fontSize: "16px",
-            }}
-          />
+         <h4>ダメージ</h4>
+<input
+  type="number"
+  value={damage}
+  onChange={(e) => setDamage(e.target.value)}
+  style={{
+    padding: "6px",
+    width: "120px",
+    borderRadius: "6px",
+    border: "1px solid #ccc",  // ← ここを修正
+    fontSize: "16px",
+  }}
+/>
+
+          
         </div>
 
         {/* 必殺技 */}
