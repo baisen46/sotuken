@@ -36,6 +36,9 @@ export default function ComboInputPage() {
   // ▼ ダメージ
   const [damage, setDamage] = useState<string>("");
 
+  // ▼ 備考（筆者コメント）
+  const [note, setNote] = useState<string>("");
+
   // ▼ 操作タイプ
   const [playStyle, setPlayStyle] = useState<"モダン" | "クラシック">("モダン");
 
@@ -213,10 +216,10 @@ export default function ComboInputPage() {
 
     // ▼ タグ統合（ヒット状況＋属性＋カテゴリ＋属性タグ）
     const tags = [
-      hitType,                   // ヒット状況
-      ...selectedAttributes,     // ダメ重視/起き攻め重視/運び重視
-      selectedCategory,          // カテゴリ（CRコン など）※1つだけ
-      ...selectedPropertyTags,   // 立ち限定 など
+      hitType, // ヒット状況
+      ...selectedAttributes, // ダメ重視/起き攻め重視/運び重視
+      selectedCategory, // カテゴリ（CRコン など）※1つだけ
+      ...selectedPropertyTags, // 立ち限定 など
     ].filter(Boolean);
 
     const body = {
@@ -232,6 +235,7 @@ export default function ComboInputPage() {
       starterText,
       driveCost,
       superCost,
+      description: note || null, // ★ 備考を description として送信
     };
 
     const res = await fetch("/api/combos/create", {
@@ -461,13 +465,25 @@ export default function ComboInputPage() {
               marginBottom: "12px",
             }}
           >
-            <button onClick={() => add("弱P")} style={commonButton}>弱P</button>
-            <button onClick={() => add("中P")} style={commonButton}>中P</button>
-            <button onClick={() => add("強P")} style={commonButton}>強P</button>
+            <button onClick={() => add("弱P")} style={commonButton}>
+              弱P
+            </button>
+            <button onClick={() => add("中P")} style={commonButton}>
+              中P
+            </button>
+            <button onClick={() => add("強P")} style={commonButton}>
+              強P
+            </button>
 
-            <button onClick={() => add("弱K")} style={commonButton}>弱K</button>
-            <button onClick={() => add("中K")} style={commonButton}>中K</button>
-            <button onClick={() => add("強K")} style={commonButton}>強K</button>
+            <button onClick={() => add("弱K")} style={commonButton}>
+              弱K
+            </button>
+            <button onClick={() => add("中K")} style={commonButton}>
+              中K
+            </button>
+            <button onClick={() => add("強K")} style={commonButton}>
+              強K
+            </button>
           </div>
 
           <div
@@ -497,21 +513,38 @@ export default function ComboInputPage() {
             ))}
           </div>
 
-         <h4>ダメージ</h4>
-<input
-  type="number"
-  value={damage}
-  onChange={(e) => setDamage(e.target.value)}
-  style={{
-    padding: "6px",
-    width: "120px",
-    borderRadius: "6px",
-    border: "1px solid #ccc",  // ← ここを修正
-    fontSize: "16px",
-  }}
-/>
+          {/* ダメージ */}
+          <h4>ダメージ</h4>
+          <input
+            type="number"
+            value={damage}
+            onChange={(e) => setDamage(e.target.value)}
+            style={{
+              padding: "6px",
+              width: "120px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              fontSize: "16px",
+            }}
+          />
 
-          
+          {/* 備考 */}
+          <h4 style={{ marginTop: "12px" }}>備考</h4>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="コンボの狙い、注意点、ゲージ効率など自由にメモできます"
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "8px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              fontSize: "14px",
+              resize: "vertical",
+              marginTop: "4px",
+            }}
+          />
         </div>
 
         {/* 必殺技 */}
@@ -525,7 +558,14 @@ export default function ComboInputPage() {
           }}
         >
           <h3>必殺技</h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px",
+              marginTop: "10px",
+            }}
+          >
             {moves.map((m) => (
               <button key={m.id} onClick={() => addMove(m)} style={commonButton}>
                 {m.name}
@@ -591,8 +631,12 @@ export default function ComboInputPage() {
         </div>
 
         <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
-          <button onClick={deleteLast} style={commonButton}>最後を削除</button>
-          <button onClick={clearAll} style={commonButton}>全消去</button>
+          <button onClick={deleteLast} style={commonButton}>
+            最後を削除
+          </button>
+          <button onClick={clearAll} style={commonButton}>
+            全消去
+          </button>
 
           <button
             onClick={saveCombo}

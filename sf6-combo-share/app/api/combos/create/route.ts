@@ -15,52 +15,59 @@ export async function POST(req: Request) {
       damage,
       steps,
       tags,
+      starterText,
       driveCost,
       superCost,
+      description, // 備考
     } = body;
 
-    // --- コンボ作成 ---
+    // Prisma への登録
     const combo = await prisma.combo.create({
       data: {
-        userId,
-        characterId,
-        conditionId,
-        attributeId,
-        playStyle,
+        // 基本情報
+        userId: Number(userId) || 1,
+        characterId: Number(characterId),
+        conditionId: Number(conditionId),
+        attributeId: attributeId != null ? Number(attributeId) : null,
+        playStyle, // "MODERN" | "CLASSIC"
         comboText,
-        damage,
-        driveCost,         // ★ 追加
-        superCost,         // ★ 追加
+        damage: damage != null ? Number(damage) : null,
 
-        // steps の一括登録
+        // 追加情報
+        starterText: starterText ?? null,
+        driveCost: driveCost != null ? Number(driveCost) : 0,
+        superCost: superCost != null ? Number(superCost) : 0,
+        description: description ?? null,
+
+        // 手順
         steps: {
-          create: steps.map((s: any) => ({
-            order: s.order,
-            moveId: s.moveId,
-            attributeId: s.attributeId,
-            note: s.note,
+          create: (steps ?? []).map((s: any, index: number) => ({
+            order: s.order ?? index + 1,
+            moveId: s.moveId ?? null,
+            attributeId: s.attributeId ?? null,
+            note: s.note ?? null,
           })),
         },
 
-        // タグ
+        // タグ（ヒット状況 / カテゴリ / 属性 などをまとめて受ける）
         tags: {
-          create: tags?.map((t: any) => ({
+          create: (tags ?? []).map((name: string) => ({
             tag: {
               connectOrCreate: {
-                where: { name: t },
-                create: { name: t },
+                where: { name },      // name は Tag.name（@unique）の想定
+                create: { name },
               },
             },
-          })) ?? [],
+          })),
         },
       },
     });
 
     return NextResponse.json({ success: true, combo });
-  } catch (error: any) {
-    console.error("CREATE COMBO ERROR:", error);
+  } catch (e) {
+    console.error("CREATE COMBO ERROR:", e);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: String(e) },
       { status: 500 }
     );
   }

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
-// ★ Next.js 16 の params は Promise
+// Next.js 16: params は Promise
 export default async function ComboDetailPage(
   props: { params: Promise<{ id: string }> }
 ) {
@@ -11,7 +12,7 @@ export default async function ComboDetailPage(
   if (isNaN(comboId)) {
     return (
       <div className="p-6">
-        <h2 className="text-lg font-bold">エラー: Invalid combo id</h2>
+        <h2 className="text-lg font-bold text-red-600">エラー: Invalid combo id</h2>
       </div>
     );
   }
@@ -41,98 +42,160 @@ export default async function ComboDetailPage(
     );
   }
 
-  return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
+  const playStyleLabel =
+    combo.playStyle === "MODERN" ? "モダン" : "クラシック";
 
-      {/* タイトル */}
-      <h1 className="text-2xl font-extrabold">コンボ詳細</h1>
+  const tagNames = combo.tags.map((t) => t.tag.name as string);
+  const CATEGORY_TAGS = ["CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
 
-      {/* 情報カード */}
-      <div className="border rounded-lg p-4 bg-white shadow-sm space-y-3">
+  const categoryTag =
+    tagNames.find((name) => CATEGORY_TAGS.includes(name as any)) ?? "NONE";
 
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">{combo.character.name}</h2>
-          <Badge variant="outline">{combo.playStyle}</Badge>
-        </div>
-
-        <div className="text-gray-700 space-y-1">
-          <p>
-            ダメージ:{" "}
-            <span className="font-bold text-lg">{combo.damage ?? "-"}</span>
-          </p>
-
-          {combo.condition && (
-            <p className="flex gap-2 items-center">
-              条件:
-              <Badge variant="secondary">
-                {combo.condition.description}
-              </Badge>
-            </p>
-          )}
-
-          {combo.tags.length > 0 && (
-            <p className="flex gap-2 items-center flex-wrap">
-              タグ:
-              {combo.tags.map((t) => (
-                <Badge key={t.tag.id} variant="outline">
-                  {t.tag.name}
-                </Badge>
-              ))}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* 手順 */}
-      <div>
-        <h3 className="text-xl font-semibold mb-3">手順</h3>
-
-        <div className="space-y-4">
-          {combo.steps.map((step, index) => (
-            <StepLine
-              key={step.id}
-              index={index}
-              moveName={step.move?.name}
-              note={step.note}
-            />
-          ))}
-        </div>
-      </div>
-
-    </div>
+  const otherTags = tagNames.filter(
+    (name) => !CATEGORY_TAGS.includes(name as any)
   );
-}
+  const displayTags = otherTags.length > 0 ? otherTags : tagNames;
 
-/* ---------------------------------------------------------
-   1ステップを見やすく表示 (パッと見重視)
---------------------------------------------------------- */
+  const starterText =
+    combo.starterText && combo.starterText.trim().length > 0
+      ? combo.starterText.trim()
+      : (() => {
+          if (!combo.comboText) return "-";
+          const firstSeg = combo.comboText.split(">")[0];
+          const t = firstSeg.trim();
+          return t.length > 0 ? t : "-";
+        })();
 
-function StepLine({
-  index,
-  moveName,
-  note,
-}: {
-  index: number;
-  moveName?: string;
-  note?: string | null;
-}) {
-  // move があるなら技名、無いなら note をバッジ分解して出力
-  const displayText = moveName || note || "";
-  const tokens = displayText.split(/[\s]+/);
+  const driveCost = combo.driveCost ?? 0;
+  const superCost = combo.superCost ?? 0;
+  const totalGauge = driveCost + superCost;
+  const efficiency =
+    combo.damage != null && totalGauge > 0
+      ? Math.round(combo.damage / totalGauge)
+      : null;
 
   return (
-    <div className="flex items-center gap-3 flex-wrap bg-gray-50 p-3 rounded-md">
-      <span className="font-bold text-gray-600">{index + 1}.</span>
-
-      {tokens.map((t, i) => (
-        <Badge
-          key={i}
-          className="text-base py-1 px-2 bg-white border"
-          variant="outline"
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {/* 戻るリンク */}
+      <div className="text-sm text-gray-600">
+        <Link
+          href={`/characters/${combo.characterId}/combos`}
+          className="text-blue-600 hover:underline"
         >
-          {t}
-        </Badge>
-      ))}
+          ← {combo.character.name} のコンボ一覧に戻る
+        </Link>
+      </div>
+
+      {/* 見出し */}
+      <header className="space-y-3">
+        <h1 className="text-3xl font-bold">コンボ詳細</h1>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge variant="outline" className="text-base">
+            {combo.character.name} / {playStyleLabel}
+          </Badge>
+
+          <Badge className="text-base bg-blue-100 text-blue-900 border-blue-300">
+            始動技: {starterText}
+          </Badge>
+
+          <Badge className="bg-purple-100 text-purple-900 border-purple-300">
+            {categoryTag}
+          </Badge>
+        </div>
+      </header>
+
+      {/* ステータスブロック */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+        <div>
+          <div className="text-xs text-gray-500">ダメージ</div>
+          <div className="text-xl font-bold">
+            {combo.damage != null ? combo.damage : "-"}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500">OD消費</div>
+          <div className="text-lg">{driveCost}</div>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500">SA消費</div>
+          <div className="text-lg">{superCost}</div>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500">合計ゲージ</div>
+          <div className="text-lg">{totalGauge}</div>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500">効率（ダメージ/ゲージ）</div>
+          <div className="text-lg">
+            {efficiency != null ? efficiency : "-"}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500">状況 / 属性</div>
+          <div className="text-sm text-gray-800">
+            {combo.condition?.description ?? combo.condition?.type ?? "-"}
+            {combo.attribute && (
+              <>
+                {" / "}
+                {combo.attribute.description ?? combo.attribute.type}
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* タグ */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">タグ</h2>
+        {displayTags.length === 0 ? (
+          <p className="text-sm text-gray-500">タグは設定されていません。</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {displayTags.map((name) => (
+              <Badge key={name} className="bg-gray-200">
+                {name}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* コンボレシピ（= comboText） */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">コンボレシピ</h2>
+        <div className="rounded-md border bg-white px-3 py-2 text-sm leading-relaxed">
+          {combo.comboText}
+        </div>
+      </section>
+
+      {/* 備考（description） */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">備考</h2>
+        <div className="rounded-md border bg-white px-3 py-2 text-sm leading-relaxed min-h-[48px]">
+          {combo.description && combo.description.trim().length > 0
+            ? combo.description
+            : "備考は登録されていません。"}
+        </div>
+      </section>
+
+      {/* メタ情報 */}
+      <section className="text-xs text-gray-500 space-y-1">
+        <div>
+          投稿者:{" "}
+          {combo.user ? (
+            <span>{combo.user.name ?? `User#${combo.user.id}`}</span>
+          ) : (
+            "不明"
+          )}
+        </div>
+        <div>登録日時: {combo.createdAt.toLocaleString("ja-JP")}</div>
+      </section>
     </div>
   );
 }
