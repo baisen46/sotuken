@@ -178,12 +178,16 @@ export default function ComboInputPage() {
   );
 
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
-  const actionButtons = ["J", "DR", "DI", "OD", "SA", "A"];
+  const actionButtons = ["J", "DR","CR", "DI", "OD", "SA", "A"];
 
   /** ▼ コンボ保存 */
   const saveCombo = async () => {
     if (!selectedCharacter) {
       alert("キャラを選んでください");
+      return;
+    }
+    if (history.length === 0) {
+      alert("コンボを入力してください");
       return;
     }
 
@@ -223,7 +227,6 @@ export default function ComboInputPage() {
     ].filter(Boolean);
 
     const body = {
-      userId: 1,
       characterId: selectedCharacter,
       conditionId: 1,
       attributeId: 1,
@@ -238,19 +241,30 @@ export default function ComboInputPage() {
       description: note || null, // ★ 備考を description として送信
     };
 
-    const res = await fetch("/api/combos/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch("/api/combos/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-    const data = await res.json();
-    console.log("SAVE RESULT:", data);
+      const data = await res.json();
+      console.log("SAVE RESULT:", data);
 
-    if (data.success) {
-      alert("保存成功！");
-    } else {
-      alert("エラー: " + JSON.stringify(data));
+      if (res.status === 401) {
+        alert("ログインしてからコンボを保存してください。");
+        return;
+      }
+
+      if (data.success) {
+        alert("保存成功！");
+        // 保存後にフォームを軽くリセットする場合はここで state を初期化しても良い
+      } else {
+        alert("エラー: " + (data.error ?? JSON.stringify(data)));
+      }
+    } catch (e) {
+      console.error(e);
+      alert("サーバーへの送信に失敗しました。");
     }
   };
 
