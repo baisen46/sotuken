@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
+import ComboActions from "@/components/ComboActions";
+import { getCurrentUser } from "@/lib/auth";
 
 // Next.js 16: params は Promise
 export default async function ComboDetailPage(
@@ -29,6 +31,9 @@ export default async function ComboDetailPage(
         include: { move: true, attribute: true },
       },
       tags: { include: { tag: true } },
+
+      // ★ ここで favorites / ratings を取っているので、
+      // ★ 3-2 の初期値（件数/自分の状態/平均）をこの配列から計算できる
       favorites: true,
       ratings: true,
     },
@@ -41,6 +46,19 @@ export default async function ComboDetailPage(
       </div>
     );
   }
+
+  // ===== ここが「3-2 相当」：初期値を作るブロック =====
+  const user = await getCurrentUser();
+
+  const favoriteCount = combo.favorites.length;
+  const initialFavorited = !!user && combo.favorites.some((f) => f.userId === user.id);
+
+  const ratingCount = combo.ratings.length;
+  const ratingSum = combo.ratings.reduce((acc, r) => acc + (r.value ?? 0), 0);
+  const initialAvgRating = ratingCount > 0 ? ratingSum / ratingCount : null;
+  const initialMyRating =
+    user ? (combo.ratings.find((r) => r.userId === user.id)?.value ?? null) : null;
+  // ===== ここまで =====
 
   const playStyleLabel =
     combo.playStyle === "MODERN" ? "モダン" : "クラシック";
@@ -149,6 +167,17 @@ export default async function ComboDetailPage(
           </div>
         </div>
       </section>
+
+      {/* ★ お気に入り / 評価（ここに表示） */}
+      <ComboActions
+        comboId={comboId}
+        isLoggedIn={!!user}
+        initialFavorited={initialFavorited}
+        initialFavoriteCount={favoriteCount}
+        initialMyRating={initialMyRating}
+        initialAvgRating={initialAvgRating}
+        initialRatingCount={ratingCount}
+      />
 
       {/* タグ */}
       <section className="space-y-2">

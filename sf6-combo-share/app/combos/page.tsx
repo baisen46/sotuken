@@ -1,182 +1,175 @@
-// app/combos/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
-export const dynamic = "force-dynamic"; // 念のため（ソート確認時の混乱防止）
+type SP = Record<string, string | string[] | undefined> | Promise<Record<string, string | string[] | undefined>>;
 
-type SortKey = "created" | "damage" | "drive" | "super";
-type SortDir = "asc" | "desc";
-
-function normalizeSortKey(v?: string): SortKey {
-  if (v === "damage" || v === "drive" || v === "super") return v;
-  return "created";
-}
-function normalizeSortDir(v?: string): SortDir {
-  return v === "asc" ? "asc" : "desc";
-}
-function nextDir(current: SortDir) {
-  return current === "asc" ? "desc" : "asc";
+function first(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] : v;
 }
 
-export default async function CombosPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ sort?: string; dir?: string }>;
-}) {
-  const sp = await searchParams;
+function clamp(n: number, min: number, max: number) {
+  if (Number.isNaN(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
 
-  const sort = normalizeSortKey(sp.sort);
-  const dir = normalizeSortDir(sp.dir);
+function buildHref(basePath: string, current: Record<string, string>, patch: Record<string, string | null>) {
+  const usp = new URLSearchParams(current);
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) usp.delete(k);
+    else usp.set(k, v);
+  }
+  const qs = usp.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
+}
+
+function sortNextDir(currentSort: string, currentDir: string, nextSort: string) {
+  if (currentSort !== nextSort) return "desc";
+  return currentDir === "asc" ? "desc" : "asc";
+}
+
+function sortMark(currentSort: string, currentDir: string, col: string) {
+  if (currentSort !== col) return "";
+  return currentDir === "asc" ? " ▲" : " ▼";
+}
+
+export default async function CombosPage(props: { searchParams?: SP }) {
+  const sp = (await (props.searchParams as any)) ?? {};
+
+  const page = clamp(Number(first(sp.page) ?? "1"), 1, 1000000);
+  const take = clamp(Number(first(sp.take) ?? "50"), 1, 200);
+
+  const sort = (first(sp.sort) ?? "created") as "created" | "damage" | "drive" | "super";
+  const dir = (first(sp.dir) ?? "desc") === "asc" ? "asc" : "desc";
+
+  const skip = (page - 1) * take;
 
   const orderBy =
-    sort === "damage"
-      ? { damage: dir }
+    sort === "created"
+      ? [{ createdAt: dir }, { id: "desc" as const }]
+      : sort === "damage"
+      ? [{ damage: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
       : sort === "drive"
-      ? { driveCost: dir }
-      : sort === "super"
-      ? { superCost: dir }
-      : { createdAt: dir };
+      ? [{ driveCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+      : [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
-  const combos = await prisma.combo.findMany({
-    include: {
-      user: { select: { id: true, name: true } },
-      character: { select: { id: true, name: true } },
-      tags: { include: { tag: true } },
+  const include = {
+    character: { select: { id: true, name: true } },
+    condition: { select: { type: true, description: true } },
+    attribute: { select: { type: true, description: true } },
+    tags: { include: { tag: true } },
+    steps: {
+      take: 1,
+      orderBy: { order: "asc" as const },
+      include: { move: { select: { id: true, name: true, input: true } } },
     },
-    orderBy,
-    take: 100,
-  });
+  } as const;
 
-  const sortLink = (key: SortKey) => {
-    const isActive = sort === key;
-    const next = isActive ? nextDir(dir) : "desc";
-    return `/combos?sort=${key}&dir=${next}`;
+  const [total, items] = await prisma.$transaction([
+    prisma.combo.count({}),
+    prisma.combo.findMany({ include, orderBy: orderBy as any, skip, take }),
+  ]);
+
+  const pages = Math.max(1, Math.ceil(total / take));
+  const safePage = Math.min(page, pages);
+
+  const currentParams: Record<string, string> = {
+    page: String(safePage),
+    take: String(take),
+    sort,
+    dir,
+  };
+
+  const th = (label: string, col: "created" | "damage" | "drive" | "super") => {
+    const nextDir = sortNextDir(sort, dir, col);
+    const href = buildHref("/combos", currentParams, { sort: col, dir: nextDir, page: "1" });
+    return (
+      <Link href={href} className="hover:underline">
+        {label}
+        {sortMark(sort, dir, col)}
+      </Link>
+    );
   };
 
   return (
-    <main style={{ maxWidth: "1200px", margin: "20px auto", padding: "0 16px 40px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: "12px" }}>
-        <div>
-          <h1 style={{ marginBottom: "4px" }}>コンボ一覧</h1>
-          <p style={{ fontSize: "13px", color: "#666" }}>最大100件表示（ソート切替対応）</p>
-          <p style={{ fontSize: "12px", color: "#888" }}>
-            現在: sort={sort}, dir={dir}
-          </p>
-        </div>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-bold">全コンボ一覧</h1>
 
-        <Link href="/combo/new">
-          <button
-            type="button"
-            style={{
-              borderRadius: "6px",
-              border: "1px solid #2b74ff",
-              backgroundColor: "#e4efff",
-              padding: "8px 12px",
-              fontSize: "13px",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
+      <div className="flex items-center justify-between text-sm text-gray-600">
+        <div>全 {total} 件</div>
+        <div className="flex items-center gap-2">
+          <Link
+            href={buildHref("/combos", currentParams, { page: String(Math.max(1, safePage - 1)) })}
+            className={`px-3 py-1 rounded border ${safePage <= 1 ? "pointer-events-none opacity-40" : "hover:bg-gray-50"}`}
           >
-            コンボを投稿
-          </button>
-        </Link>
+            前へ
+          </Link>
+          <span>
+            {safePage} / {pages}
+          </span>
+          <Link
+            href={buildHref("/combos", currentParams, { page: String(Math.min(pages, safePage + 1)) })}
+            className={`px-3 py-1 rounded border ${safePage >= pages ? "pointer-events-none opacity-40" : "hover:bg-gray-50"}`}
+          >
+            次へ
+          </Link>
+        </div>
       </div>
 
-      <div style={{ marginTop: "14px", border: "1px solid #e0e0e0", borderRadius: "8px", overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-          <thead style={{ backgroundColor: "#f5f5f5", borderBottom: "1px solid #ddd" }}>
-            <tr>
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
-                <Link href={sortLink("created")} style={{ color: "#333", textDecoration: "none" }}>
-                  投稿日{sort === "created" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b bg-gray-100 text-gray-700">
+            <th className="p-2">キャラ</th>
+            <th className="p-2">始動</th>
+            <th className="p-2">コンボ</th>
+            <th className="p-2">{th("作成", "created")}</th>
+            <th className="p-2">{th("ダメージ", "damage")}</th>
+            <th className="p-2">{th("D消費", "drive")}</th>
+            <th className="p-2">{th("SA消費", "super")}</th>
+            <th className="p-2">状況</th>
+            <th className="p-2">属性</th>
+            <th className="p-2">タグ</th>
+            <th className="p-2">詳細</th>
+          </tr>
+        </thead>
 
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>キャラ</th>
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>始動</th>
-              <th style={{ padding: "10px 8px", textAlign: "left" }}>コンボ表記</th>
+        <tbody>
+          {items.map((combo) => {
+            const starter = combo.steps?.[0]?.move?.name ?? combo.steps?.[0]?.note ?? "-";
+            const hitLabel = combo.condition?.description ?? combo.condition?.type ?? "-";
+            const attrLabel = combo.attribute?.description ?? combo.attribute?.type ?? "-";
+            const tags = combo.tags?.map((t) => t.tag.name) ?? [];
 
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortLink("damage")} style={{ color: "#333", textDecoration: "none" }}>
-                  ダメージ{sort === "damage" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
-
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortLink("drive")} style={{ color: "#333", textDecoration: "none" }}>
-                  Dゲージ{sort === "drive" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
-
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortLink("super")} style={{ color: "#333", textDecoration: "none" }}>
-                  SAゲージ{sort === "super" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
-
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>タグ</th>
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>投稿者</th>
-              <th style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>詳細</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {combos.length === 0 ? (
-              <tr>
-                <td colSpan={10} style={{ padding: "14px 10px", color: "#777" }}>
-                  コンボがまだありません。
+            return (
+              <tr key={combo.id} className="border-b hover:bg-gray-50">
+                <td className="p-2">{combo.character?.name ?? "-"}</td>
+                <td className="p-2">{starter}</td>
+                <td className="p-2">
+                  <div className="max-w-[520px] truncate">{combo.comboText}</div>
+                </td>
+                <td className="p-2">{new Date(combo.createdAt).toLocaleDateString("ja-JP")}</td>
+                <td className="p-2 font-bold">{combo.damage ?? "-"}</td>
+                <td className="p-2">{combo.driveCost ?? 0}</td>
+                <td className="p-2">{combo.superCost ?? 0}</td>
+                <td className="p-2">{hitLabel}</td>
+                <td className="p-2">{attrLabel}</td>
+                <td className="p-2 space-x-1">
+                  {tags.slice(0, 4).map((name) => (
+                    <span key={name} className="inline-block bg-gray-200 px-2 py-1 rounded text-xs">
+                      {name}
+                    </span>
+                  ))}
+                  {tags.length > 4 && <span className="text-xs text-gray-500">+{tags.length - 4}</span>}
+                </td>
+                <td className="p-2">
+                  <Link href={`/combos/${combo.id}`} className="text-blue-600 hover:underline">
+                    →
+                  </Link>
                 </td>
               </tr>
-            ) : (
-              combos.map((combo: any) => {
-                const created = new Date(combo.createdAt);
-                const createdStr = `${created.getFullYear()}/${created.getMonth() + 1}/${created.getDate()}`;
-                const tags = combo.tags?.map((ct: any) => ct.tag?.name).filter(Boolean) ?? [];
-
-                return (
-                  <tr key={combo.id} style={{ borderTop: "1px solid #eee" }}>
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top" }}>{createdStr}</td>
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.character?.name ?? "-"}</td>
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.starterText ?? "-"}</td>
-                    <td style={{ padding: "10px 8px", verticalAlign: "top" }}>{combo.comboText}</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.damage ?? "-"}</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.driveCost ?? 0}</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.superCost ?? 0}</td>
-                    <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                        {tags.length === 0 ? (
-                          <span style={{ color: "#aaa" }}>タグなし</span>
-                        ) : (
-                          tags.slice(0, 8).map((t: string) => (
-                            <span
-                              key={t}
-                              style={{
-                                padding: "2px 6px",
-                                borderRadius: "999px",
-                                border: "1px solid #ddd",
-                                backgroundColor: "#fafafa",
-                              }}
-                            >
-                              {t}
-                            </span>
-                          ))
-                        )}
-                        {tags.length > 8 && <span style={{ color: "#888", fontSize: "12px" }}>…</span>}
-                      </div>
-                    </td>
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top" }}>{combo.user?.name ?? "名無し"}</td>
-                    <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      <Link href={`/combos/${combo.id}`} style={{ color: "#2b74ff", fontSize: "12px" }}>
-                        詳細
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </main>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
