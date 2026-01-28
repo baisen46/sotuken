@@ -202,22 +202,24 @@ model ComboTag {
 // COMMENTS
 //
 model Comment {
-  id        Int      @id @default(autoincrement())
-  comboId   Int      @map("combo_id")
-  userId    Int      @map("user_id")
-  comment   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
+  id          Int      @id @default(autoincrement())
+  comboId     Int      @map("combo_id")
+  userId      Int      @map("user_id")
+  comment     String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  // ★ 管理画面用（公開/非公開 + ソフト削除）
+  // ★ 追加（管理画面用）
   isPublished Boolean   @default(true) @map("is_published")
   deletedAt   DateTime? @map("deleted_at")
 
-  combo Combo @relation(fields: [comboId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
+  combo       Combo     @relation(fields: [comboId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
 
-  @@index([isPublished, deletedAt, createdAt])
+  @@index([deletedAt, isPublished, comboId, createdAt])
   @@map("comments")
 }
+
+
 
 //
 // FAVORITES

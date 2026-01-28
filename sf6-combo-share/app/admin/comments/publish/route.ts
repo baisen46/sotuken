@@ -1,25 +1,44 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { isAdminUser } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!isAdminUser(user)) return NextResponse.json({ success: false, error: "forbidden" }, { status: 403 });
+function isAdminEmail(email?: string | null) {
+  const raw = process.env.ADMIN_EMAILS ?? "";
+  if (!raw) return false;
+  const allow = new Set(
+    raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+  );
+  return !!email && allow.has(email.toLowerCase());
+}
 
-  const body = await req.json().catch(() => null);
-  const id = Number(body?.id);
-  const publish = Boolean(body?.publish);
+function safeNext(next: string | null, origin: string) {
+  const fallback = new URL("/admin/comments?scope=all&take=50&page=1", origin);
+  if (!next) return fallback;
+  if (!next.startsWith("/admin/comments")) return fallback;
+  return new URL(next, origin);
+}
 
-  if (!Number.isInteger(id)) return NextResponse.json({ success: false, error: "invalid id" }, { status: 400 });
+export async function GET(req: Request) {
+  const me = await getCurrentUser().catch(() => null);
+  const url = new URL(req.url);
 
-  const updated = await prisma.comment.update({
-    where: { id },
-    data: { isPublished: publish },
-    select: { id: true, isPublished: true, deletedAt: true },
-  });
+  const id = Number(url.searchParams.get("id"));
+  const publish = url.searchParams.get("publish"); // "0" or "1"
+  const next = url.searchParams.get("next");
+  const redirectUrl = safeNext(next, url.origin);
 
-  return NextResponse.json({ success: true, comment: updated });
+  if (!me || !isAdminEmail((me as any).email)) return NextResponse.redirect(redirectUrl);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.redirect(redirectUrl);
+
+  const pub = publish === "1" ? 1 : 0;
+
+  await prisma.$executeRaw`
+    UPDATE comments
+    SET is_published = ${pub}
+    WHERE id = ${id} AND deleted_at IS NULL
+  `;
+
+  return NextResponse.redirect(redirectUrl);
 }

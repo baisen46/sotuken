@@ -1,23 +1,42 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { isAdminUser } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!isAdminUser(user)) return NextResponse.json({ success: false, error: "forbidden" }, { status: 403 });
+function isAdminEmail(email?: string | null) {
+  const raw = process.env.ADMIN_EMAILS ?? "";
+  if (!raw) return false;
+  const allow = new Set(
+    raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+  );
+  return !!email && allow.has(email.toLowerCase());
+}
 
-  const body = await req.json().catch(() => null);
-  const id = Number(body?.id);
-  if (!Number.isInteger(id)) return NextResponse.json({ success: false, error: "invalid id" }, { status: 400 });
+function safeNext(next: string | null, origin: string) {
+  const fallback = new URL("/admin/comments?scope=all&take=50&page=1", origin);
+  if (!next) return fallback;
+  if (!next.startsWith("/admin/comments")) return fallback;
+  return new URL(next, origin);
+}
 
-  const updated = await prisma.comment.update({
-    where: { id },
-    data: { deletedAt: null, isPublished: true },
-    select: { id: true, isPublished: true, deletedAt: true },
-  });
+export async function GET(req: Request) {
+  const me = await getCurrentUser().catch(() => null);
+  const url = new URL(req.url);
 
-  return NextResponse.json({ success: true, comment: updated });
+  const id = Number(url.searchParams.get("id"));
+  const next = url.searchParams.get("next");
+  const redirectUrl = safeNext(next, url.origin);
+
+  if (!me || !isAdminEmail((me as any).email)) return NextResponse.redirect(redirectUrl);
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.redirect(redirectUrl);
+
+  // 復元は「未削除に戻す」だけ。公開状態は安全側で 0 のままにしておく（必要なら公開ボタンで戻す）
+  await prisma.$executeRaw`
+    UPDATE comments
+    SET deleted_at = NULL
+    WHERE id = ${id} AND deleted_at IS NOT NULL
+  `;
+
+  return NextResponse.redirect(redirectUrl);
 }
