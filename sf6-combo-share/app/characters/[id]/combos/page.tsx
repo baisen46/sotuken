@@ -1,19 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 
+type Params = { id: string };
 type SP =
   | Record<string, string | string[] | undefined>
   | Promise<Record<string, string | string[] | undefined>>;
-type PP = { id: string } | Promise<{ id: string }>;
 
 function first(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
-}
-
-function clamp(n: number, min: number, max: number) {
-  if (Number.isNaN(n)) return min;
-  return Math.min(max, Math.max(min, n));
 }
 
 function buildHref(basePath: string, current: Record<string, string>, patch: Record<string, string | null>) {
@@ -36,55 +30,53 @@ function sortMark(currentSort: string, currentDir: string, col: string) {
   return currentDir === "asc" ? " ▲" : " ▼";
 }
 
-type SortKey = "created" | "damage" | "drive" | "super" | "popular" | "rating";
+type SortKey = "created" | "damage" | "drive" | "super";
 type Dir = "asc" | "desc";
 
-export default async function CharacterCombosPage(props: { params: PP; searchParams?: SP }) {
-  const params = await (props.params as any);
+// ===== 始動表示：comboText 先頭を「2弱P」形式に正規化して表示 =====
+const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
+
+function mergeNumberWithNext(tokens: string[]) {
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    const next = tokens[i + 1];
+    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
+      out.push(cur + next);
+      i++;
+      continue;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+function starterFromComboText(comboText: string) {
+  const before = (comboText.split(">")[0] ?? "").trim();
+  if (!before) return "-";
+  const tokens = before.split(/\s+/).filter(Boolean);
+  return mergeNumberWithNext(tokens).join("").replace(/\s+/g, "");
+}
+
+export default async function CharacterCombosPage(props: { params: Params | Promise<Params>; searchParams?: SP }) {
+  const params = await props.params;
   const sp = (await (props.searchParams as any)) ?? {};
 
   const characterId = Number(params.id);
-  if (Number.isNaN(characterId)) return <div className="p-6">キャラIDが不正です。</div>;
-
-  const character = await prisma.character.findUnique({
-    where: { id: characterId },
-    select: { id: true, name: true },
-  });
-  if (!character) return <div className="p-6">キャラが見つかりません。</div>;
-
-  const page = clamp(Number(first(sp.page) ?? "1"), 1, 1000000);
-  const take = clamp(Number(first(sp.take) ?? "50"), 1, 200);
-  const skip = (page - 1) * take;
+  if (!Number.isFinite(characterId)) {
+    return <div className="p-6">characterId が不正です</div>;
+  }
 
   const sortRaw = (first(sp.sort) ?? "created") as SortKey;
   const sort: SortKey =
-    sortRaw === "damage" ||
-    sortRaw === "drive" ||
-    sortRaw === "super" ||
-    sortRaw === "popular" ||
-    sortRaw === "rating"
-      ? sortRaw
-      : "created";
-
+    sortRaw === "damage" || sortRaw === "drive" || sortRaw === "super" ? sortRaw : "created";
   const dir: Dir = (first(sp.dir) ?? "desc") === "asc" ? "asc" : "desc";
 
-  const where = { characterId };
-
-  const total = await prisma.combo.count({ where });
-  const pages = Math.max(1, Math.ceil(total / take));
-  const safePage = Math.min(page, pages);
-
-  const basePath = `/characters/${characterId}/combos`;
-  const currentParams: Record<string, string> = {
-    page: String(safePage),
-    take: String(take),
-    sort,
-    dir,
-  };
+  const currentParams: Record<string, string> = { sort, dir };
 
   const th = (label: string, col: SortKey) => {
     const nextDir = sortNextDir(sort, dir, col);
-    const href = buildHref(basePath, currentParams, { sort: col, dir: nextDir, page: "1" });
+    const href = buildHref(`/characters/${characterId}/combos`, currentParams, { sort: col, dir: nextDir });
     return (
       <Link href={href} className="hover:underline">
         {label}
@@ -93,131 +85,43 @@ export default async function CharacterCombosPage(props: { params: PP; searchPar
     );
   };
 
-  let orderedIds: number[] | null = null;
+  const character = await prisma.character.findUnique({
+    where: { id: characterId },
+    select: { id: true, name: true },
+  });
 
-  if (sort === "rating") {
-    const dirSql = dir === "asc" ? Prisma.raw("ASC") : Prisma.raw("DESC");
+  const orderBy =
+    sort === "created"
+      ? [{ createdAt: dir }, { id: "desc" as const }]
+      : sort === "damage"
+      ? [{ damage: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+      : sort === "drive"
+      ? [{ driveCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+      : [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
-    const rows = await prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
-      SELECT c.id
-      FROM combos c
-      LEFT JOIN ratings r ON r.combo_id = c.id
-      WHERE c.character_id = ${characterId}
-      GROUP BY c.id
-      ORDER BY
-        (AVG(r.value) IS NULL) ASC,
-        AVG(r.value) ${dirSql},
-        COUNT(r.id) DESC,
-        c.created_at DESC,
-        c.id DESC
-      LIMIT ${take} OFFSET ${skip}
-    `);
-
-    orderedIds = rows.map((r) => r.id);
-  }
-
-  const include = {
-    condition: { select: { type: true, description: true } },
-    attribute: { select: { type: true, description: true } },
-    tags: { include: { tag: true } },
-    steps: {
-      take: 1,
-      orderBy: { order: "asc" as const },
-      include: { move: { select: { id: true, name: true, input: true } } },
+  const items = await prisma.combo.findMany({
+    where: { characterId },
+    include: {
+      tags: { include: { tag: true } },
     },
-    _count: { select: { favorites: true, ratings: true } },
-  } as const;
-
-  let items = [];
-
-  if (orderedIds) {
-    if (orderedIds.length === 0) items = [];
-    else {
-      const fetched = await prisma.combo.findMany({
-        where: { id: { in: orderedIds } },
-        include,
-      });
-
-      const index = new Map<number, number>();
-      orderedIds.forEach((id, i) => index.set(id, i));
-      fetched.sort((a, b) => (index.get(a.id)! - index.get(b.id)!));
-
-      items = fetched as any;
-    }
-  } else {
-    const orderBy =
-      sort === "created"
-        ? [{ createdAt: dir }, { id: "desc" as const }]
-        : sort === "damage"
-        ? [{ damage: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
-        : sort === "drive"
-        ? [{ driveCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
-        : sort === "super"
-        ? [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
-        : // popular
-          [{ favorites: { _count: dir } }, { createdAt: "desc" as const }, { id: "desc" as const }];
-
-    items = (await prisma.combo.findMany({
-      where,
-      include,
-      orderBy: orderBy as any,
-      skip,
-      take,
-    })) as any;
-  }
-
-  const pageComboIds = items.map((c: any) => c.id);
-
-  const ratingAgg =
-    pageComboIds.length > 0
-      ? await prisma.rating.groupBy({
-          by: ["comboId"],
-          where: { comboId: { in: pageComboIds } },
-          _avg: { value: true },
-        })
-      : [];
-
-  const ratingAvgMap = new Map<number, number>();
-  for (const row of ratingAgg) {
-    const avg = row._avg.value;
-    if (avg != null) ratingAvgMap.set(row.comboId, avg);
-  }
+    orderBy: orderBy as any,
+    take: 200, // とりあえず（ページネーション導入までは上限を置く）
+  });
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{character.name} のコンボ一覧</h1>
-        <div className="flex items-center gap-3 text-sm">
-          <Link href="/" className="text-blue-600 hover:underline">
-            キャラ選択へ
+        <div>
+          <h1 className="text-2xl font-bold">{character?.name ?? "キャラ"} のコンボ一覧</h1>
+          <div className="text-sm text-gray-600">characterId: {characterId}</div>
+        </div>
+
+        <div className="flex gap-3 text-sm">
+          <Link href={`/combos/search?characterId=${characterId}`} className="text-blue-600 hover:underline">
+            検索（このキャラ）へ →
           </Link>
           <Link href="/combos" className="text-blue-600 hover:underline">
-            全体一覧へ
-          </Link>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between text-sm text-gray-600">
-        <div>全 {total} 件</div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={buildHref(basePath, currentParams, { page: String(Math.max(1, safePage - 1)) })}
-            className={`px-3 py-1 rounded border ${
-              safePage <= 1 ? "pointer-events-none opacity-40" : "hover:bg-gray-50"
-            }`}
-          >
-            前へ
-          </Link>
-          <span>
-            {safePage} / {pages}
-          </span>
-          <Link
-            href={buildHref(basePath, currentParams, { page: String(Math.min(pages, safePage + 1)) })}
-            className={`px-3 py-1 rounded border ${
-              safePage >= pages ? "pointer-events-none opacity-40" : "hover:bg-gray-50"
-            }`}
-          >
-            次へ
+            全体一覧へ →
           </Link>
         </div>
       </div>
@@ -228,48 +132,41 @@ export default async function CharacterCombosPage(props: { params: PP; searchPar
             <th className="p-2">始動</th>
             <th className="p-2">コンボ</th>
             <th className="p-2">{th("作成", "created")}</th>
-            <th className="p-2">{th("ダメージ", "damage")}</th>
-            <th className="p-2">{th("D消費", "drive")}</th>
-            <th className="p-2">{th("SA消費", "super")}</th>
-            <th className="p-2">{th("お気に入り", "popular")}</th>
-            <th className="p-2">{th("評価", "rating")}</th>
-            <th className="p-2">状況</th>
-            <th className="p-2">属性</th>
+            <th className="p-2">{th("ダメ", "damage")}</th>
+            <th className="p-2">{th("D", "drive")}</th>
+            <th className="p-2">{th("SA", "super")}</th>
             <th className="p-2">タグ</th>
             <th className="p-2">詳細</th>
           </tr>
         </thead>
 
         <tbody>
-          {items.map((combo: any) => {
-            const starter = combo.steps?.[0]?.move?.name ?? combo.steps?.[0]?.note ?? "-";
-            const hitLabel = combo.condition?.description ?? combo.condition?.type ?? "-";
-            const attrLabel = combo.attribute?.description ?? combo.attribute?.type ?? "-";
-            const tags = combo.tags?.map((t: any) => t.tag.name) ?? [];
-
-            const favCount = combo._count?.favorites ?? 0;
-            const rCount = combo._count?.ratings ?? 0;
-            const rAvg = ratingAvgMap.get(combo.id);
-            const rLabel = rAvg == null ? "-" : rAvg.toFixed(2);
+          {items.map((combo) => {
+            const starter = starterFromComboText(combo.comboText ?? "");
+            const tags = combo.tags?.map((t) => t.tag.name) ?? [];
 
             return (
               <tr key={combo.id} className="border-b hover:bg-gray-50">
-                <td className="p-2">{starter}</td>
+                <td className="p-2 font-bold">{starter}</td>
                 <td className="p-2">
-                  <div className="max-w-[520px] truncate">{combo.comboText}</div>
+                  <div
+                    className="max-w-[620px]"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical" as any,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {combo.comboText}
+                  </div>
                 </td>
                 <td className="p-2">{new Date(combo.createdAt).toLocaleDateString("ja-JP")}</td>
                 <td className="p-2 font-bold">{combo.damage ?? "-"}</td>
                 <td className="p-2">{combo.driveCost ?? 0}</td>
                 <td className="p-2">{combo.superCost ?? 0}</td>
-                <td className="p-2">{favCount}</td>
-                <td className="p-2">
-                  {rLabel} <span className="text-xs text-gray-500">({rCount})</span>
-                </td>
-                <td className="p-2">{hitLabel}</td>
-                <td className="p-2">{attrLabel}</td>
                 <td className="p-2 space-x-1">
-                  {tags.slice(0, 4).map((name: string) => (
+                  {tags.slice(0, 4).map((name) => (
                     <span key={name} className="inline-block bg-gray-200 px-2 py-1 rounded text-xs">
                       {name}
                     </span>
@@ -284,6 +181,14 @@ export default async function CharacterCombosPage(props: { params: PP; searchPar
               </tr>
             );
           })}
+
+          {items.length === 0 && (
+            <tr>
+              <td colSpan={8} className="p-6 text-center text-gray-500">
+                まだこのキャラのコンボがありません。
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
