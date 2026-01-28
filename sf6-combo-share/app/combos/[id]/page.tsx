@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import ComboActions from "@/components/ComboActions";
 import { getCurrentUser } from "@/lib/auth";
+import CommentsSection from "@/components/CommentsSection";
+
+export const dynamic = "force-dynamic";
 
 function formatPlayStyle(ps: string) {
   return ps === "MODERN" ? "モダン" : ps === "CLASSIC" ? "クラシック" : ps;
@@ -23,9 +26,7 @@ function extractStarterText(comboText: string) {
   return starterTokens.join(" ");
 }
 
-export default async function ComboDetailPage(
-  props: { params: Promise<{ id: string }> }
-) {
+export default async function ComboDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
   const comboId = Number(id);
 
@@ -47,6 +48,10 @@ export default async function ComboDetailPage(
       tags: { include: { tag: true } },
       favorites: true,
       ratings: true,
+      comments: {
+        orderBy: { createdAt: "desc" },
+        include: { user: { select: { id: true, name: true } } },
+      },
     },
   });
 
@@ -58,21 +63,15 @@ export default async function ComboDetailPage(
   const ratingCount = combo.ratings.length;
 
   const avgRating =
-    ratingCount === 0
-      ? null
-      : combo.ratings.reduce((sum, r) => sum + r.value, 0) / ratingCount;
+    ratingCount === 0 ? null : combo.ratings.reduce((sum, r) => sum + r.value, 0) / ratingCount;
 
-  const meFavorite =
-    currentUser ? combo.favorites.some((f) => f.userId === currentUser.id) : false;
+  const meFavorite = currentUser ? combo.favorites.some((f) => f.userId === currentUser.id) : false;
 
-  const meRating =
-    currentUser
-      ? combo.ratings.find((r) => r.userId === currentUser.id)?.value ?? null
-      : null;
+  const meRating = currentUser
+    ? combo.ratings.find((r) => r.userId === currentUser.id)?.value ?? null
+    : null;
 
-  const starterText =
-    // DBに starterText が無い想定でも崩れないように comboText から抽出
-    extractStarterText(combo.comboText);
+  const starterText = extractStarterText(combo.comboText);
 
   const tokens = toTokens(combo.comboText);
 
@@ -80,21 +79,28 @@ export default async function ComboDetailPage(
   const superCost = combo.superCost ?? 0;
 
   const damage = combo.damage ?? null;
-  const dmgPerDrive =
-    damage != null && driveCost > 0 ? Math.round((damage / driveCost) * 10) / 10 : null;
-  const dmgPerSuper =
-    damage != null && superCost > 0 ? Math.round((damage / superCost) * 10) / 10 : null;
+  const dmgPerDrive = damage != null && driveCost > 0 ? Math.round((damage / driveCost) * 10) / 10 : null;
+  const dmgPerSuper = damage != null && superCost > 0 ? Math.round((damage / superCost) * 10) / 10 : null;
+
+  // CommentsSection へ渡す（createdAt は Date -> string に）
+  const initialComments = combo.comments.map((c) => ({
+    id: c.id,
+    comboId: c.comboId,
+    userId: c.userId,
+    comment: c.comment,
+    createdAt: c.createdAt.toISOString(),
+    user: c.user,
+  }));
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       {/* パンくず */}
       <div className="text-sm text-gray-600 flex flex-wrap gap-x-2 gap-y-1">
-        <Link href="/" className="hover:underline">トップ</Link>
+        <Link href="/" className="hover:underline">
+          トップ
+        </Link>
         <span>/</span>
-        <Link
-          href={`/combos/search?characterId=${combo.characterId}`}
-          className="hover:underline"
-        >
+        <Link href={`/combos/search?characterId=${combo.characterId}`} className="hover:underline">
           {combo.character.name}
         </Link>
         <span>/</span>
@@ -105,9 +111,7 @@ export default async function ComboDetailPage(
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold">
-              {starterText || "（始動不明）"}
-            </h1>
+            <h1 className="text-2xl font-bold">{starterText || "（始動不明）"}</h1>
             <div className="text-sm text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
               <span>投稿者: {combo.user.name}</span>
               <span>作成: {new Date(combo.createdAt).toLocaleString("ja-JP")}</span>
@@ -115,11 +119,9 @@ export default async function ComboDetailPage(
             </div>
           </div>
 
-          {/* お気に入り/評価（既存コンポーネント利用） */}
           <div className="shrink-0">
             <ComboActions
               comboId={combo.id}
-              // 既存実装が使えるなら読み取って使ってOK。不要なら無視される想定。
               initialIsFavorite={meFavorite as any}
               initialFavoriteCount={favoriteCount as any}
               initialMyRating={meRating as any}
@@ -138,25 +140,17 @@ export default async function ComboDetailPage(
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">Drive消費</div>
             <div className="text-lg font-bold">{driveCost}</div>
-            <div className="text-xs text-gray-500">
-              {dmgPerDrive != null ? `効率: ${dmgPerDrive}/Drive` : ""}
-            </div>
+            <div className="text-xs text-gray-500">{dmgPerDrive != null ? `効率: ${dmgPerDrive}/Drive` : ""}</div>
           </div>
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">SA消費</div>
             <div className="text-lg font-bold">{superCost}</div>
-            <div className="text-xs text-gray-500">
-              {dmgPerSuper != null ? `効率: ${dmgPerSuper}/SA` : ""}
-            </div>
+            <div className="text-xs text-gray-500">{dmgPerSuper != null ? `効率: ${dmgPerSuper}/SA` : ""}</div>
           </div>
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">評価</div>
-            <div className="text-lg font-bold">
-              {avgRating == null ? "-" : `${Math.round(avgRating * 10) / 10}`}
-            </div>
-            <div className="text-xs text-gray-500">
-              {ratingCount > 0 ? `${ratingCount}件` : "評価なし"}
-            </div>
+            <div className="text-lg font-bold">{avgRating == null ? "-" : `${Math.round(avgRating * 10) / 10}`}</div>
+            <div className="text-xs text-gray-500">{ratingCount > 0 ? `${ratingCount}件` : "評価なし"}</div>
           </div>
         </div>
 
@@ -167,15 +161,11 @@ export default async function ComboDetailPage(
           </div>
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">ヒット状況</div>
-            <div className="text-sm">
-              {combo.condition?.description ?? combo.condition?.type ?? "-"}
-            </div>
+            <div className="text-sm">{combo.condition?.description ?? combo.condition?.type ?? "-"}</div>
           </div>
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">属性</div>
-            <div className="text-sm">
-              {combo.attribute?.description ?? combo.attribute?.type ?? "-"}
-            </div>
+            <div className="text-sm">{combo.attribute?.description ?? combo.attribute?.type ?? "-"}</div>
           </div>
           <div className="border rounded-md p-3">
             <div className="text-xs text-gray-500">バージョン</div>
@@ -184,7 +174,7 @@ export default async function ComboDetailPage(
         </div>
       </div>
 
-      {/* コンボ本体（ピル表示） */}
+      {/* コンボ本体 */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">コンボ</h2>
         <div className="border rounded-md p-3">
@@ -202,9 +192,7 @@ export default async function ComboDetailPage(
               </span>
             ))}
           </div>
-          <div className="mt-3 text-xs text-gray-500 break-words">
-            {combo.comboText}
-          </div>
+          <div className="mt-3 text-xs text-gray-500 break-words">{combo.comboText}</div>
         </div>
       </section>
 
@@ -236,12 +224,7 @@ export default async function ComboDetailPage(
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">動画</h2>
         {combo.videoUrl ? (
-          <a
-            href={combo.videoUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-blue-600 hover:underline break-all"
-          >
+          <a href={combo.videoUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline break-all">
             {combo.videoUrl}
           </a>
         ) : (
@@ -249,12 +232,12 @@ export default async function ComboDetailPage(
         )}
       </section>
 
+      {/* コメント */}
+      <CommentsSection comboId={combo.id} initialComments={initialComments} currentUserId={currentUser?.id ?? null} />
+
       {/* 戻る */}
       <div className="pt-2">
-        <Link
-          href={`/combos/search?characterId=${combo.characterId}`}
-          className="text-blue-600 hover:underline"
-        >
+        <Link href={`/combos/search?characterId=${combo.characterId}`} className="text-blue-600 hover:underline">
           ← 検索結果に戻る
         </Link>
       </div>
