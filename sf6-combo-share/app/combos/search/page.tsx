@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { buildQVariants, starterFromComboText } from "@/lib/notation";
 
 type SP =
   | Record<string, string | string[] | undefined>
@@ -65,59 +66,6 @@ function parseTagsParam(raw: string | undefined) {
     else tagNames.push(t);
   }
   return { tagIds, tagNames };
-}
-
-// ====== 表示用：数字 + 次トークンを合体（2 弱P -> 2弱P） ======
-const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
-
-function mergeNumberWithNext(tokens: string[]) {
-  const out: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const cur = tokens[i];
-    const next = tokens[i + 1];
-
-    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
-      out.push(cur + next);
-      i++;
-      continue;
-    }
-    out.push(cur);
-  }
-  return out;
-}
-
-function starterFromComboText(comboText: string) {
-  // ">" より前を始動とみなす
-  const before = (comboText.split(">")[0] ?? "").trim();
-  if (!before) return "-";
-  const tokens = before.split(/\s+/).filter(Boolean);
-  return mergeNumberWithNext(tokens).join("").replace(/\s+/g, "");
-}
-
-// ====== 検索用：q のスペース差を吸収（2弱P / 2 弱P / 2 3 6 弱P など） ======
-function buildQVariants(qRaw: string) {
-  const raw = qRaw.trim();
-  if (!raw) return [];
-
-  const noSpace = raw.replace(/\s+/g, "");
-
-  // 2中K -> 2 中K, 236P -> 236 P
-  const spacedDigitRest = noSpace.replace(/^(\d+)(\D.+)$/, "$1 $2");
-
-  // 236P -> 2 3 6 P（旧データ救済）
-  let digitsSpaced = noSpace;
-  const m = noSpace.match(/^(\d+)(\D.+)$/);
-  if (m) {
-    const digits = m[1].split("").join(" ");
-    const rest = m[2];
-    digitsSpaced = `${digits} ${rest}`;
-  }
-
-  const vars = [raw, noSpace, spacedDigitRest, digitsSpaced]
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  return Array.from(new Set(vars));
 }
 
 export default async function ComboSearchPage(props: { searchParams?: SP }) {
@@ -230,7 +178,7 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
     if (maxDrive != null) wheres.push(Prisma.sql`c.drive_cost <= ${maxDrive}`);
     if (maxSuper != null) wheres.push(Prisma.sql`c.super_cost <= ${maxSuper}`);
 
-    // q（スペース有無差を吸収）※combo_text のみに適用（starter_text は参照しない）
+    // q（スペース有無差を吸収）※ combo_text のみ
     if (qVariants.length > 0) {
       const likeParts: Prisma.Sql[] = [];
 
@@ -239,7 +187,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         likeParts.push(Prisma.sql`c.combo_text LIKE ${like}`);
       }
 
-      // タグ・技名は raw(q) を優先
       const likeQ = `%${q}%`;
       likeParts.push(Prisma.sql`EXISTS (
         SELECT 1
@@ -399,12 +346,7 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
     <div className="max-w-6xl mx-auto p-6 space-y-5">
       <h1 className="text-2xl font-bold">コンボ検索</h1>
 
-      {/* 検索フォーム */}
-      <form
-        action="/combos/search"
-        method="get"
-        className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded border p-4 bg-white"
-      >
+      <form action="/combos/search" method="get" className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded border p-4 bg-white">
         <input type="hidden" name="mode" value={mode} />
         <input type="hidden" name="sort" value={sort} />
         <input type="hidden" name="dir" value={dir} />
@@ -422,11 +364,7 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
 
         <div className="md:col-span-3">
           <div className="text-xs text-gray-500 mb-1">キャラ</div>
-          <select
-            name="characterId"
-            defaultValue={characterId ? String(characterId) : ""}
-            className="w-full rounded border px-3 py-2 text-sm"
-          >
+          <select name="characterId" defaultValue={characterId ? String(characterId) : ""} className="w-full rounded border px-3 py-2 text-sm">
             <option value="">全キャラ</option>
             {characters.map((c) => (
               <option key={c.id} value={c.id}>
@@ -448,38 +386,19 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
 
         <div className="md:col-span-2">
           <div className="text-xs text-gray-500 mb-1">minDamage</div>
-          <input
-            name="minDamage"
-            defaultValue={minDamage ?? ""}
-            className="w-full rounded border px-3 py-2 text-sm"
-          />
+          <input name="minDamage" defaultValue={minDamage ?? ""} className="w-full rounded border px-3 py-2 text-sm" />
         </div>
-
         <div className="md:col-span-2">
           <div className="text-xs text-gray-500 mb-1">maxDamage</div>
-          <input
-            name="maxDamage"
-            defaultValue={maxDamage ?? ""}
-            className="w-full rounded border px-3 py-2 text-sm"
-          />
+          <input name="maxDamage" defaultValue={maxDamage ?? ""} className="w-full rounded border px-3 py-2 text-sm" />
         </div>
-
         <div className="md:col-span-2">
           <div className="text-xs text-gray-500 mb-1">maxDrive</div>
-          <input
-            name="maxDrive"
-            defaultValue={maxDrive ?? ""}
-            className="w-full rounded border px-3 py-2 text-sm"
-          />
+          <input name="maxDrive" defaultValue={maxDrive ?? ""} className="w-full rounded border px-3 py-2 text-sm" />
         </div>
-
         <div className="md:col-span-2">
           <div className="text-xs text-gray-500 mb-1">maxSuper</div>
-          <input
-            name="maxSuper"
-            defaultValue={maxSuper ?? ""}
-            className="w-full rounded border px-3 py-2 text-sm"
-          />
+          <input name="maxSuper" defaultValue={maxSuper ?? ""} className="w-full rounded border px-3 py-2 text-sm" />
         </div>
 
         <div className="md:col-span-2">
@@ -491,10 +410,7 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         </div>
 
         <div className="md:col-span-2 flex items-end gap-2">
-          <button
-            type="submit"
-            className="w-full rounded bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700"
-          >
+          <button type="submit" className="w-full rounded bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700">
             検索
           </button>
           <Link href="/combos/search" className="w-full text-center rounded border px-3 py-2 text-sm hover:bg-gray-50">
@@ -503,7 +419,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         </div>
       </form>
 
-      {/* 条件チップ */}
       <div className="flex flex-wrap gap-2">
         {q && chip(`q: ${q}`, { q: null, page: "1" })}
         {characterId && chip(`character: ${characterId}`, { characterId: null, page: "1" })}
@@ -515,7 +430,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         {mode === "or" && chip(`mode: OR`, { mode: "and", page: "1" })}
       </div>
 
-      {/* 件数＋ページネーション */}
       <div className="flex items-center justify-between text-sm text-gray-600">
         <div>該当 {total} 件</div>
         <div className="flex items-center gap-2">
@@ -537,7 +451,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         </div>
       </div>
 
-      {/* 結果 */}
       <table className="w-full border-collapse text-left text-sm">
         <thead>
           <tr className="border-b bg-gray-100 text-gray-700">
@@ -559,7 +472,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
           {items.map((combo: any) => {
             const starter = starterFromComboText(String(combo.comboText ?? ""));
             const tags = combo.tags?.map((t: any) => t.tag.name) ?? [];
-
             const favCount = combo._count?.favorites ?? 0;
             const rCount = combo._count?.ratings ?? 0;
             const rAvg = ratingAvgMap.get(combo.id);

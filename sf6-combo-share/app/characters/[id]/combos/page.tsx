@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { starterFromComboText } from "@/lib/notation";
 
 type Params = { id: string };
 type SP =
@@ -32,31 +33,6 @@ function sortMark(currentSort: string, currentDir: string, col: string) {
 
 type SortKey = "created" | "damage" | "drive" | "super";
 type Dir = "asc" | "desc";
-
-// ===== 始動表示：comboText 先頭を「2弱P」形式に正規化して表示 =====
-const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
-
-function mergeNumberWithNext(tokens: string[]) {
-  const out: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const cur = tokens[i];
-    const next = tokens[i + 1];
-    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
-      out.push(cur + next);
-      i++;
-      continue;
-    }
-    out.push(cur);
-  }
-  return out;
-}
-
-function starterFromComboText(comboText: string) {
-  const before = (comboText.split(">")[0] ?? "").trim();
-  if (!before) return "-";
-  const tokens = before.split(/\s+/).filter(Boolean);
-  return mergeNumberWithNext(tokens).join("").replace(/\s+/g, "");
-}
 
 export default async function CharacterCombosPage(props: { params: Params | Promise<Params>; searchParams?: SP }) {
   const params = await props.params;
@@ -101,11 +77,9 @@ export default async function CharacterCombosPage(props: { params: Params | Prom
 
   const items = await prisma.combo.findMany({
     where: { characterId },
-    include: {
-      tags: { include: { tag: true } },
-    },
+    include: { tags: { include: { tag: true } } },
     orderBy: orderBy as any,
-    take: 200, // とりあえず（ページネーション導入までは上限を置く）
+    take: 200,
   });
 
   return (

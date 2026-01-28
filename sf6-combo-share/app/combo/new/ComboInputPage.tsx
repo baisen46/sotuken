@@ -18,9 +18,8 @@ type StepItem = {
   moveId: number | null;
   attributeId: number | null;
 };
-const META_TOKENS = new Set([
-  ">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A",
-]);
+
+const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
 
 function mergeNumberWithNext(labels: string[]) {
   const out: string[] = [];
@@ -65,8 +64,8 @@ export default function ComboInputPage() {
   // ▼ 履歴（手順のみ）
   const [history, setHistory] = useState<StepItem[]>([]);
 
-  // ▼ コンボテキスト
-const comboText = formatComboTextFromHistory(history);
+  // ▼ コンボテキスト（正規化：2 + 弱P -> 2弱P）
+  const comboText = formatComboTextFromHistory(history);
 
   // ▼ ダメージ
   const [damage, setDamage] = useState<string>("");
@@ -87,9 +86,7 @@ const comboText = formatComboTextFromHistory(history);
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
 
   const toggleAttribute = (attr: string) => {
-    setSelectedAttributes((prev) =>
-      prev.includes(attr) ? prev.filter((a) => a !== attr) : [...prev, attr]
-    );
+    setSelectedAttributes((prev) => (prev.includes(attr) ? prev.filter((a) => a !== attr) : [...prev, attr]));
   };
 
   // ▼ カテゴリ（1つだけ選択）
@@ -111,22 +108,8 @@ const comboText = formatComboTextFromHistory(history);
   const [selectedPropertyTags, setSelectedPropertyTags] = useState<string[]>([]);
 
   const togglePropertyTag = (tag: string) => {
-    setSelectedPropertyTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
+    setSelectedPropertyTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
-
-  /** ★ 始動技抽出（最初の > まで） */
-  function getStarterText(history: StepItem[]) {
-    const parts: string[] = [];
-
-    for (const h of history) {
-      if (h.label === ">") break;
-      parts.push(h.label);
-    }
-
-    return parts.join(" ");
-  }
 
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -158,10 +141,7 @@ const comboText = formatComboTextFromHistory(history);
 
   // ▼ 必殺技
   const addMove = (move: Move) => {
-    setHistory((prev) => [
-      ...prev,
-      { label: move.name, moveId: move.id, attributeId: null },
-    ]);
+    setHistory((prev) => [...prev, { label: move.name, moveId: move.id, attributeId: null }]);
   };
 
   const deleteLast = () => setHistory((prev) => prev.slice(0, -1));
@@ -213,7 +193,7 @@ const comboText = formatComboTextFromHistory(history);
   );
 
   const numpad = ["7", "8", "9", "4", "5", "6", "1", "2", "3"];
-  const actionButtons = ["J", "DR","CR", "DI", "OD", "SA", "A"];
+  const actionButtons = ["J", "DR", "CR", "DI", "OD", "SA", "A"];
 
   /** ▼ コンボ保存 */
   const saveCombo = async () => {
@@ -226,8 +206,8 @@ const comboText = formatComboTextFromHistory(history);
       return;
     }
 
-    // ★ 始動技
-    const starterText = getStarterText(history);
+    // ★ 始動技（正規化：2 + 弱P -> 2弱P）
+    const starterText = formatStarterText(history);
 
     // ★ Dゲージ と SAゲージ
     let driveCost = 0;
@@ -266,11 +246,11 @@ const comboText = formatComboTextFromHistory(history);
       conditionId: 1,
       attributeId: 1,
       playStyle: playStyle === "モダン" ? "MODERN" : "CLASSIC",
-      comboText,
+      comboText, // ★ 正規化済み
       damage: Number(damage) || null,
       steps,
       tags,
-      starterText,
+      starterText, // ★ 正規化済み
       driveCost,
       superCost,
       description: note || null, // ★ 備考を description として送信
@@ -293,7 +273,6 @@ const comboText = formatComboTextFromHistory(history);
 
       if (data.success) {
         alert("保存成功！");
-        // 保存後にフォームを軽くリセットする場合はここで state を初期化しても良い
       } else {
         alert("エラー: " + (data.error ?? JSON.stringify(data)));
       }
@@ -377,9 +356,7 @@ const comboText = formatComboTextFromHistory(history);
                 width: "180px",
               }}
             >
-              {selectedAttributes.length === 0
-                ? "選択してください"
-                : selectedAttributes.join(", ")}
+              {selectedAttributes.length === 0 ? "選択してください" : selectedAttributes.join(", ")}
             </button>
 
             {attrOpen && (
@@ -397,9 +374,7 @@ const comboText = formatComboTextFromHistory(history);
                     <input
                       type="checkbox"
                       checked={selectedAttributes.includes(attr)}
-                      onChange={() => {
-                        toggleAttribute(attr);
-                      }}
+                      onChange={() => toggleAttribute(attr)}
                       style={{ marginRight: "6px" }}
                     />
                     {attr}
@@ -607,14 +582,7 @@ const comboText = formatComboTextFromHistory(history);
           }}
         >
           <h3>必殺技</h3>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "8px",
-              marginTop: "10px",
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {moves.map((m) => (
               <button key={m.id} onClick={() => addMove(m)} style={commonButton}>
                 {m.name}
