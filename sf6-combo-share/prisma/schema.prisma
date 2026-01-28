@@ -45,8 +45,9 @@ model User {
   comments  Comment[]
   favorites Favorite[]
   ratings   Rating[]
-  // ↓ ここを追加
-  sessions  Session[]
+
+  // Session方式
+  sessions Session[]
 
   @@map("users")
 }
@@ -75,7 +76,7 @@ model Move {
   name        String
   input       String?
 
-  character Character   @relation(fields: [characterId], references: [id])
+  character Character @relation(fields: [characterId], references: [id])
   steps     ComboStep[]
 
   @@map("moves")
@@ -127,9 +128,13 @@ model Combo {
   videoUrl      String?        @map("video_url")
   createdAt     DateTime       @default(now()) @map("created_at")
 
-  // ★ 追加: Dゲージ・SAゲージ消費量
+  // Dゲージ・SAゲージ消費量
   driveCost Int @default(0) @map("drive_cost")
   superCost Int @default(0) @map("super_cost")
+
+  // ★ 管理画面用（公開/非公開 + ソフト削除）
+  isPublished Boolean   @default(true) @map("is_published")
+  deletedAt   DateTime? @map("deleted_at")
 
   user      User       @relation(fields: [userId], references: [id])
   character Character  @relation(fields: [characterId], references: [id])
@@ -145,6 +150,7 @@ model Combo {
   favorites Favorite[]
   ratings   Rating[]
 
+  @@index([isPublished, deletedAt, createdAt])
   @@map("combos")
 }
 
@@ -202,9 +208,14 @@ model Comment {
   comment   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
+  // ★ 管理画面用（公開/非公開 + ソフト削除）
+  isPublished Boolean   @default(true) @map("is_published")
+  deletedAt   DateTime? @map("deleted_at")
+
   combo Combo @relation(fields: [comboId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
 
+  @@index([isPublished, deletedAt, createdAt])
   @@map("comments")
 }
 
@@ -241,14 +252,18 @@ model Rating {
   @@map("ratings")
 }
 
+//
+// SESSIONS（DB: SHOW COLUMNS FROM sessions と一致）
+//
 model Session {
   id        Int      @id @default(autoincrement())
   userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  token     String   @unique @db.VarChar(191)
+  expiresAt DateTime @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
-  @@map("sessions") // 物理テーブル名を sessions にしたい場合（任意）
+  @@map("sessions")
 }

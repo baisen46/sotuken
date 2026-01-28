@@ -8,6 +8,18 @@ import CommentsSection from "@/components/CommentsSection";
 
 export const dynamic = "force-dynamic";
 
+function isAdminEmail(email?: string | null) {
+  const raw = process.env.ADMIN_EMAILS ?? "";
+  if (!raw) return false;
+
+  const allow = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  return !!email && allow.includes(email.toLowerCase());
+}
+
 function formatPlayStyle(ps: string) {
   return ps === "MODERN" ? "モダン" : ps === "CLASSIC" ? "クラシック" : ps;
 }
@@ -19,23 +31,51 @@ function toTokens(comboText: string) {
     .filter(Boolean);
 }
 
+// 数字 + 次トークン結合（例: "2" "中K" -> "2中K"）
+const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
+
+function mergeNumberWithNext(tokens: string[]) {
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    const next = tokens[i + 1];
+
+    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
+      out.push(cur + next);
+      i++;
+      continue;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 function extractStarterText(comboText: string) {
   const tokens = toTokens(comboText);
   const idx = tokens.indexOf(">");
   const starterTokens = idx === -1 ? tokens : tokens.slice(0, idx);
-  return starterTokens.join(" ");
+  return mergeNumberWithNext(starterTokens).join(" ");
 }
 
 export default async function ComboDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
   const comboId = Number(id);
 
-  if (Number.isNaN(comboId)) notFound();
+  if (!Number.isInteger(comboId) || comboId <= 0) notFound();
 
   const currentUser = await getCurrentUser().catch(() => null);
+  const isAdmin = isAdminEmail((currentUser as any)?.email);
 
-  const combo = await prisma.combo.findUnique({
-    where: { id: comboId },
+  // 一般公開: 非公開/削除済みは除外（管理者は全表示）
+  const comboWhere = isAdmin
+    ? { id: comboId }
+    : { id: comboId, deletedAt: null, isPublished: true };
+
+  // コメントも同様に（管理者は全表示、一般は公開のみ）
+  const commentsWhere = isAdmin ? undefined : { deletedAt: null, isPublished: true };
+
+  const combo = await prisma.combo.findFirst({
+    where: comboWhere as any,
     include: {
       user: true,
       character: true,
@@ -49,6 +89,7 @@ export default async function ComboDetailPage(props: { params: Promise<{ id: str
       favorites: true,
       ratings: true,
       comments: {
+        where: commentsWhere as any,
         orderBy: { createdAt: "desc" },
         include: { user: { select: { id: true, name: true } } },
       },
@@ -73,7 +114,7 @@ export default async function ComboDetailPage(props: { params: Promise<{ id: str
 
   const starterText = extractStarterText(combo.comboText);
 
-  const tokens = toTokens(combo.comboText);
+  const tokens = mergeNumberWithNext(toTokens(combo.comboText));
 
   const driveCost = combo.driveCost ?? 0;
   const superCost = combo.superCost ?? 0;

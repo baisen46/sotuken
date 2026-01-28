@@ -186,6 +186,10 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
   // -------- Prisma where（フィルタ）--------
   const and: any[] = [];
 
+  // ★ 公開のみ表示（削除済み/非公開は除外）
+  and.push({ deletedAt: null });
+  and.push({ isPublished: true });
+
   if (characterId) and.push({ characterId });
   if (minDamage != null) and.push({ damage: { gte: minDamage } });
   if (maxDamage != null) and.push({ damage: { lte: maxDamage } });
@@ -300,8 +304,7 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
       const com = c._count?.comments ?? 0;
 
       // ベイズ平均 + ちょい加点（logで暴れ防止）
-      const bayes =
-        v === 0 ? 0 : (v / (v + m)) * R + (m / (v + m)) * C;
+      const bayes = v === 0 ? 0 : (v / (v + m)) * R + (m / (v + m)) * C;
 
       const score = bayes + 0.05 * Math.log1p(fav) + 0.02 * Math.log1p(com);
 
@@ -325,12 +328,19 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
         if (av !== bv) return dir === "asc" ? av - bv : bv - av;
         if (a.ratingCount !== b.ratingCount) return b.ratingCount - a.ratingCount;
       } else {
-        if (a.score !== b.score) return dir === "asc" ? a.score - b.score : b.score - a.score;
+        if (a.score !== b.score)
+          return dir === "asc" ? a.score - b.score : b.score - a.score;
         if (a.ratingCount !== b.ratingCount) return b.ratingCount - a.ratingCount;
       }
 
-      const at = a.c.createdAt instanceof Date ? a.c.createdAt.getTime() : new Date(a.c.createdAt).getTime();
-      const bt = b.c.createdAt instanceof Date ? b.c.createdAt.getTime() : new Date(b.c.createdAt).getTime();
+      const at =
+        a.c.createdAt instanceof Date
+          ? a.c.createdAt.getTime()
+          : new Date(a.c.createdAt).getTime();
+      const bt =
+        b.c.createdAt instanceof Date
+          ? b.c.createdAt.getTime()
+          : new Date(b.c.createdAt).getTime();
       if (at !== bt) return bt - at;
       return b.c.id - a.c.id;
     });
@@ -363,7 +373,6 @@ export default async function ComboSearchPage(props: { searchParams?: SP }) {
       });
     }
 
-    // UI描画のためにページ変数を後段で使う
     const pagesForRender = pages;
     const pageForRender = page;
 

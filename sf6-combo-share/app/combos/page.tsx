@@ -2,6 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { starterFromComboText } from "@/lib/notation";
 
+export const dynamic = "force-dynamic";
+
 type SP =
   | Record<string, string | string[] | undefined>
   | Promise<Record<string, string | string[] | undefined>>;
@@ -10,7 +12,11 @@ function first(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function buildHref(basePath: string, current: Record<string, string>, patch: Record<string, string | null>) {
+function buildHref(
+  basePath: string,
+  current: Record<string, string>,
+  patch: Record<string, string | null>
+) {
   const usp = new URLSearchParams(current);
   for (const [k, v] of Object.entries(patch)) {
     if (v === null) usp.delete(k);
@@ -65,6 +71,10 @@ export default async function CombosPage(props: { searchParams?: SP }) {
       : [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
   const items = await prisma.combo.findMany({
+    where: {
+      deletedAt: null,
+      isPublished: true,
+    },
     include: {
       character: { select: { id: true, name: true } },
       tags: { include: { tag: true } },
