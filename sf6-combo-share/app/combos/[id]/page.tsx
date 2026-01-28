@@ -1,193 +1,222 @@
 import { prisma } from "@/lib/prisma";
-import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import ComboActions from "@/components/ComboActions";
 import { getCurrentUser } from "@/lib/auth";
 
-// Next.js 16: params は Promise
+function formatPlayStyle(ps: string) {
+  return ps === "MODERN" ? "モダン" : ps === "CLASSIC" ? "クラシック" : ps;
+}
+
+function toTokens(comboText: string) {
+  return comboText
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractStarterText(comboText: string) {
+  const tokens = toTokens(comboText);
+  const idx = tokens.indexOf(">");
+  const starterTokens = idx === -1 ? tokens : tokens.slice(0, idx);
+  return starterTokens.join(" ");
+}
+
 export default async function ComboDetailPage(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
   const comboId = Number(id);
 
-  if (isNaN(comboId)) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-bold text-red-600">エラー: Invalid combo id</h2>
-      </div>
-    );
-  }
+  if (Number.isNaN(comboId)) notFound();
+
+  const currentUser = await getCurrentUser().catch(() => null);
 
   const combo = await prisma.combo.findUnique({
     where: { id: comboId },
     include: {
-      user: { select: { id: true, name: true } },
+      user: true,
       character: true,
       condition: true,
       attribute: true,
       steps: {
         orderBy: { order: "asc" },
-        include: { move: true, attribute: true },
+        include: { move: true },
       },
       tags: { include: { tag: true } },
-
-      // ★ ここで favorites / ratings を取っているので、
-      // ★ 3-2 の初期値（件数/自分の状態/平均）をこの配列から計算できる
       favorites: true,
       ratings: true,
     },
   });
 
-  if (!combo) {
-    return (
-      <div className="p-6">
-        <h2 className="text-lg font-bold">コンボが見つかりません</h2>
-      </div>
-    );
-  }
+  if (!combo) notFound();
 
-  // ===== ここが「3-2 相当」：初期値を作るブロック =====
-  const user = await getCurrentUser();
+  const tags = combo.tags.map((t) => t.tag.name);
 
   const favoriteCount = combo.favorites.length;
-  const initialFavorited = !!user && combo.favorites.some((f) => f.userId === user.id);
-
   const ratingCount = combo.ratings.length;
-  const ratingSum = combo.ratings.reduce((acc, r) => acc + (r.value ?? 0), 0);
-  const initialAvgRating = ratingCount > 0 ? ratingSum / ratingCount : null;
-  const initialMyRating =
-    user ? (combo.ratings.find((r) => r.userId === user.id)?.value ?? null) : null;
-  // ===== ここまで =====
 
-  const playStyleLabel =
-    combo.playStyle === "MODERN" ? "モダン" : "クラシック";
+  const avgRating =
+    ratingCount === 0
+      ? null
+      : combo.ratings.reduce((sum, r) => sum + r.value, 0) / ratingCount;
 
-  const tagNames = combo.tags.map((t) => t.tag.name as string);
-  const CATEGORY_TAGS = ["CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
+  const meFavorite =
+    currentUser ? combo.favorites.some((f) => f.userId === currentUser.id) : false;
 
-  const categoryTag =
-    tagNames.find((name) => CATEGORY_TAGS.includes(name as any)) ?? "NONE";
-
-  const otherTags = tagNames.filter(
-    (name) => !CATEGORY_TAGS.includes(name as any)
-  );
-  const displayTags = otherTags.length > 0 ? otherTags : tagNames;
+  const meRating =
+    currentUser
+      ? combo.ratings.find((r) => r.userId === currentUser.id)?.value ?? null
+      : null;
 
   const starterText =
-    combo.starterText && combo.starterText.trim().length > 0
-      ? combo.starterText.trim()
-      : (() => {
-          if (!combo.comboText) return "-";
-          const firstSeg = combo.comboText.split(">")[0];
-          const t = firstSeg.trim();
-          return t.length > 0 ? t : "-";
-        })();
+    // DBに starterText が無い想定でも崩れないように comboText から抽出
+    extractStarterText(combo.comboText);
+
+  const tokens = toTokens(combo.comboText);
 
   const driveCost = combo.driveCost ?? 0;
   const superCost = combo.superCost ?? 0;
-  const totalGauge = driveCost + superCost;
-  const efficiency =
-    combo.damage != null && totalGauge > 0
-      ? Math.round(combo.damage / totalGauge)
-      : null;
+
+  const damage = combo.damage ?? null;
+  const dmgPerDrive =
+    damage != null && driveCost > 0 ? Math.round((damage / driveCost) * 10) / 10 : null;
+  const dmgPerSuper =
+    damage != null && superCost > 0 ? Math.round((damage / superCost) * 10) / 10 : null;
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      {/* 戻るリンク */}
-      <div className="text-sm text-gray-600">
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      {/* パンくず */}
+      <div className="text-sm text-gray-600 flex flex-wrap gap-x-2 gap-y-1">
+        <Link href="/" className="hover:underline">トップ</Link>
+        <span>/</span>
         <Link
-          href={`/characters/${combo.characterId}/combos`}
-          className="text-blue-600 hover:underline"
+          href={`/combos/search?characterId=${combo.characterId}`}
+          className="hover:underline"
         >
-          ← {combo.character.name} のコンボ一覧に戻る
+          {combo.character.name}
         </Link>
+        <span>/</span>
+        <span className="text-gray-800">コンボ詳細</span>
       </div>
 
-      {/* 見出し */}
-      <header className="space-y-3">
-        <h1 className="text-3xl font-bold">コンボ詳細</h1>
+      {/* ヘッダー */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold">
+              {starterText || "（始動不明）"}
+            </h1>
+            <div className="text-sm text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+              <span>投稿者: {combo.user.name}</span>
+              <span>作成: {new Date(combo.createdAt).toLocaleString("ja-JP")}</span>
+              <span>操作: {formatPlayStyle(combo.playStyle)}</span>
+            </div>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="outline" className="text-base">
-            {combo.character.name} / {playStyleLabel}
-          </Badge>
-
-          <Badge className="text-base bg-blue-100 text-blue-900 border-blue-300">
-            始動技: {starterText}
-          </Badge>
-
-          <Badge className="bg-purple-100 text-purple-900 border-purple-300">
-            {categoryTag}
-          </Badge>
-        </div>
-      </header>
-
-      {/* ステータスブロック */}
-      <section className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
-        <div>
-          <div className="text-xs text-gray-500">ダメージ</div>
-          <div className="text-xl font-bold">
-            {combo.damage != null ? combo.damage : "-"}
+          {/* お気に入り/評価（既存コンポーネント利用） */}
+          <div className="shrink-0">
+            <ComboActions
+              comboId={combo.id}
+              // 既存実装が使えるなら読み取って使ってOK。不要なら無視される想定。
+              initialIsFavorite={meFavorite as any}
+              initialFavoriteCount={favoriteCount as any}
+              initialMyRating={meRating as any}
+              initialAvgRating={avgRating as any}
+              initialRatingCount={ratingCount as any}
+            />
           </div>
         </div>
 
-        <div>
-          <div className="text-xs text-gray-500">OD消費</div>
-          <div className="text-lg">{driveCost}</div>
-        </div>
-
-        <div>
-          <div className="text-xs text-gray-500">SA消費</div>
-          <div className="text-lg">{superCost}</div>
-        </div>
-
-        <div>
-          <div className="text-xs text-gray-500">合計ゲージ</div>
-          <div className="text-lg">{totalGauge}</div>
-        </div>
-
-        <div>
-          <div className="text-xs text-gray-500">効率（ダメージ/ゲージ）</div>
-          <div className="text-lg">
-            {efficiency != null ? efficiency : "-"}
+        {/* ステータス */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">ダメージ</div>
+            <div className="text-lg font-bold">{damage ?? "-"}</div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">Drive消費</div>
+            <div className="text-lg font-bold">{driveCost}</div>
+            <div className="text-xs text-gray-500">
+              {dmgPerDrive != null ? `効率: ${dmgPerDrive}/Drive` : ""}
+            </div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">SA消費</div>
+            <div className="text-lg font-bold">{superCost}</div>
+            <div className="text-xs text-gray-500">
+              {dmgPerSuper != null ? `効率: ${dmgPerSuper}/SA` : ""}
+            </div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">評価</div>
+            <div className="text-lg font-bold">
+              {avgRating == null ? "-" : `${Math.round(avgRating * 10) / 10}`}
+            </div>
+            <div className="text-xs text-gray-500">
+              {ratingCount > 0 ? `${ratingCount}件` : "評価なし"}
+            </div>
           </div>
         </div>
 
-        <div>
-          <div className="text-xs text-gray-500">状況 / 属性</div>
-          <div className="text-sm text-gray-800">
-            {combo.condition?.description ?? combo.condition?.type ?? "-"}
-            {combo.attribute && (
-              <>
-                {" / "}
-                {combo.attribute.description ?? combo.attribute.type}
-              </>
-            )}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">お気に入り</div>
+            <div className="text-lg font-bold">{favoriteCount}</div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">ヒット状況</div>
+            <div className="text-sm">
+              {combo.condition?.description ?? combo.condition?.type ?? "-"}
+            </div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">属性</div>
+            <div className="text-sm">
+              {combo.attribute?.description ?? combo.attribute?.type ?? "-"}
+            </div>
+          </div>
+          <div className="border rounded-md p-3">
+            <div className="text-xs text-gray-500">バージョン</div>
+            <div className="text-sm">{combo.version ?? "-"}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* コンボ本体（ピル表示） */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">コンボ</h2>
+        <div className="border rounded-md p-3">
+          <div className="flex flex-wrap gap-2">
+            {tokens.map((t, i) => (
+              <span
+                key={`${t}-${i}`}
+                className={
+                  t === ">"
+                    ? "px-2 py-1 rounded bg-gray-200 text-gray-800 text-sm font-semibold"
+                    : "px-2 py-1 rounded bg-gray-100 text-gray-900 text-sm"
+                }
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-gray-500 break-words">
+            {combo.comboText}
           </div>
         </div>
       </section>
 
-      {/* ★ お気に入り / 評価（ここに表示） */}
-      <ComboActions
-        comboId={comboId}
-        isLoggedIn={!!user}
-        initialFavorited={initialFavorited}
-        initialFavoriteCount={favoriteCount}
-        initialMyRating={initialMyRating}
-        initialAvgRating={initialAvgRating}
-        initialRatingCount={ratingCount}
-      />
-
       {/* タグ */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">タグ</h2>
-        {displayTags.length === 0 ? (
-          <p className="text-sm text-gray-500">タグは設定されていません。</p>
+        {tags.length === 0 ? (
+          <div className="text-sm text-gray-600">タグなし</div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {displayTags.map((name) => (
-              <Badge key={name} className="bg-gray-200">
+            {tags.map((name) => (
+              <Badge key={name} variant="secondary">
                 {name}
               </Badge>
             ))}
@@ -195,36 +224,40 @@ export default async function ComboDetailPage(
         )}
       </section>
 
-      {/* コンボレシピ（= comboText） */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">コンボレシピ</h2>
-        <div className="rounded-md border bg-white px-3 py-2 text-sm leading-relaxed">
-          {combo.comboText}
-        </div>
-      </section>
-
-      {/* 備考（description） */}
+      {/* 備考 */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">備考</h2>
-        <div className="rounded-md border bg-white px-3 py-2 text-sm leading-relaxed min-h-[48px]">
-          {combo.description && combo.description.trim().length > 0
-            ? combo.description
-            : "備考は登録されていません。"}
+        <div className="border rounded-md p-3 text-sm whitespace-pre-wrap">
+          {combo.description?.trim() ? combo.description : "なし"}
         </div>
       </section>
 
-      {/* メタ情報 */}
-      <section className="text-xs text-gray-500 space-y-1">
-        <div>
-          投稿者:{" "}
-          {combo.user ? (
-            <span>{combo.user.name ?? `User#${combo.user.id}`}</span>
-          ) : (
-            "不明"
-          )}
-        </div>
-        <div>登録日時: {combo.createdAt.toLocaleString("ja-JP")}</div>
+      {/* 動画 */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">動画</h2>
+        {combo.videoUrl ? (
+          <a
+            href={combo.videoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 hover:underline break-all"
+          >
+            {combo.videoUrl}
+          </a>
+        ) : (
+          <div className="text-sm text-gray-600">なし</div>
+        )}
       </section>
+
+      {/* 戻る */}
+      <div className="pt-2">
+        <Link
+          href={`/combos/search?characterId=${combo.characterId}`}
+          className="text-blue-600 hover:underline"
+        >
+          ← 検索結果に戻る
+        </Link>
+      </div>
     </div>
   );
 }
