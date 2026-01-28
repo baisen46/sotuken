@@ -1,603 +1,621 @@
-// app/combos/search/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
-export const dynamic = "force-dynamic";
+type SP =
+  | Record<string, string | string[] | undefined>
+  | Promise<Record<string, string | string[] | undefined>>;
 
-type SortKey = "created" | "damage" | "drive" | "super";
-type SortDir = "asc" | "desc";
-type TagMode = "and" | "or";
-
-function normalizeSortKey(v?: string): SortKey {
-  if (v === "damage" || v === "drive" || v === "super") return v;
-  return "created";
-}
-function normalizeSortDir(v?: string): SortDir {
-  return v === "asc" ? "asc" : "desc";
-}
-function normalizeMode(v?: string): TagMode {
-  return v === "or" ? "or" : "and";
-}
-function toNum(v?: string) {
-  if (!v) return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
+function first(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] : v;
 }
 
-// 投稿UI側と揃える（検索UI候補）
-const HIT_OPTIONS = ["ノーマル", "カウンター", "パニッシュカウンター", "フォースダウン"] as const;
-const ATTRIBUTE_OPTIONS = ["ダメージ重視", "起き攻め重視", "運び重視"] as const;
-const CATEGORY_OPTIONS = ["CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
-const PROPERTY_TAG_OPTIONS = [
-  "立ち限定",
-  "デカキャラ限定",
-  "目押しコン",
-  "密着限定",
-  "入れ替えコン",
-  "端付近",
-  "端限定",
-  "中央以上",
-  "被画面端",
-] as const;
-
-// 表示優先度（カテゴリ→ヒット→属性→属性タグ→その他）
-function sortTagsByPriority(tags: string[]) {
-  const pri = new Map<string, number>();
-  for (const t of CATEGORY_OPTIONS) pri.set(t, 0);
-  for (const t of HIT_OPTIONS) pri.set(t, 1);
-  for (const t of ATTRIBUTE_OPTIONS) pri.set(t, 2);
-  for (const t of PROPERTY_TAG_OPTIONS) pri.set(t, 3);
-
-  return [...tags].sort((a, b) => {
-    const pa = pri.has(a) ? (pri.get(a) as number) : 9;
-    const pb = pri.has(b) ? (pri.get(b) as number) : 9;
-    if (pa !== pb) return pa - pb;
-    return a.localeCompare(b, "ja");
-  });
+function clamp(n: number, min: number, max: number) {
+  if (Number.isNaN(n)) return min;
+  return Math.min(max, Math.max(min, n));
 }
 
-export default async function ComboSearchPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const sp = await searchParams;
+function buildHref(
+  basePath: string,
+  current: Record<string, string>,
+  patch: Record<string, string | null>
+) {
+  const usp = new URLSearchParams(current);
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) usp.delete(k);
+    else usp.set(k, v);
+  }
+  const qs = usp.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
+}
 
-  // GETパラメータ取り出し
-  const q = typeof sp.q === "string" ? sp.q.trim() : "";
-  const characterId = typeof sp.characterId === "string" ? toNum(sp.characterId) : undefined;
+function sortNextDir(currentSort: string, currentDir: string, nextSort: string) {
+  if (currentSort !== nextSort) return "desc";
+  return currentDir === "asc" ? "desc" : "asc";
+}
 
-  // tags: ?tags=a&tags=b または ?tags=a,b を許容
-  let tags: string[] = [];
-  if (Array.isArray(sp.tags)) tags = sp.tags.filter((t): t is string => typeof t === "string");
-  if (typeof sp.tags === "string") tags = sp.tags.split(",").map((s) => s.trim()).filter(Boolean);
-  // 重複除去
-  tags = Array.from(new Set(tags));
+function sortMark(currentSort: string, currentDir: string, col: string) {
+  if (currentSort !== col) return "";
+  return currentDir === "asc" ? " ▲" : " ▼";
+}
 
-  const minDamage = typeof sp.minDamage === "string" ? toNum(sp.minDamage) : undefined;
-  const maxDamage = typeof sp.maxDamage === "string" ? toNum(sp.maxDamage) : undefined;
-  const maxDrive = typeof sp.maxDrive === "string" ? toNum(sp.maxDrive) : undefined;
-  const maxSuper = typeof sp.maxSuper === "string" ? toNum(sp.maxSuper) : undefined;
+type SortKey = "created" | "damage" | "drive" | "super" | "popular" | "rating";
+type Dir = "asc" | "desc";
 
-  const mode = normalizeMode(typeof sp.mode === "string" ? sp.mode : undefined);
+function parseIntOrNull(s: string | undefined) {
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
 
-  const sort = normalizeSortKey(typeof sp.sort === "string" ? sp.sort : undefined);
-  const dir = normalizeSortDir(typeof sp.dir === "string" ? sp.dir : undefined);
+function parseTagsParam(raw: string | undefined) {
+  if (!raw) return { tagIds: [] as number[], tagNames: [] as string[] };
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 
-  const page = Math.max(1, typeof sp.page === "string" ? toNum(sp.page) ?? 1 : 1);
-  const take = 50;
-  const skip = (page - 1) * take;
+  const tagIds: number[] = [];
+  const tagNames: string[] = [];
 
-  // where を組み立て（基本はANDで束ねる）
+  for (const t of tokens) {
+    const n = Number(t);
+    if (Number.isInteger(n) && n > 0) tagIds.push(n);
+    else tagNames.push(t);
+  }
+  return { tagIds, tagNames };
+}
+
+// ====== 表示用：数字 + 次トークンを合体（2 弱P -> 2弱P） ======
+const META_TOKENS = new Set([">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A"]);
+
+function mergeNumberWithNext(tokens: string[]) {
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    const next = tokens[i + 1];
+
+    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
+      out.push(cur + next);
+      i++;
+      continue;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
+function starterFromComboText(comboText: string) {
+  // ">" より前を始動とみなす
+  const before = (comboText.split(">")[0] ?? "").trim();
+  if (!before) return "-";
+  const tokens = before.split(/\s+/).filter(Boolean);
+  return mergeNumberWithNext(tokens).join("").replace(/\s+/g, "");
+}
+
+// ====== 検索用：q のスペース差を吸収（2弱P / 2 弱P / 2 3 6 弱P など） ======
+function buildQVariants(qRaw: string) {
+  const raw = qRaw.trim();
+  if (!raw) return [];
+
+  const noSpace = raw.replace(/\s+/g, "");
+
+  // 2中K -> 2 中K, 236P -> 236 P
+  const spacedDigitRest = noSpace.replace(/^(\d+)(\D.+)$/, "$1 $2");
+
+  // 236P -> 2 3 6 P（旧データ救済）
+  let digitsSpaced = noSpace;
+  const m = noSpace.match(/^(\d+)(\D.+)$/);
+  if (m) {
+    const digits = m[1].split("").join(" ");
+    const rest = m[2];
+    digitsSpaced = `${digits} ${rest}`;
+  }
+
+  const vars = [raw, noSpace, spacedDigitRest, digitsSpaced]
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(vars));
+}
+
+export default async function ComboSearchPage(props: { searchParams?: SP }) {
+  const sp = (await (props.searchParams as any)) ?? {};
+
+  const q = (first(sp.q) ?? "").trim();
+  const characterId = parseIntOrNull(first(sp.characterId));
+  const minDamage = parseIntOrNull(first(sp.minDamage));
+  const maxDamage = parseIntOrNull(first(sp.maxDamage));
+  const maxDrive = parseIntOrNull(first(sp.maxDrive));
+  const maxSuper = parseIntOrNull(first(sp.maxSuper));
+
+  const mode = (first(sp.mode) ?? "and") === "or" ? "or" : "and";
+
+  const sortRaw = (first(sp.sort) ?? "created") as SortKey;
+  const sort: SortKey =
+    sortRaw === "damage" ||
+    sortRaw === "drive" ||
+    sortRaw === "super" ||
+    sortRaw === "popular" ||
+    sortRaw === "rating"
+      ? sortRaw
+      : "created";
+
+  const dir: Dir = (first(sp.dir) ?? "desc") === "asc" ? "asc" : "desc";
+
+  const pageWanted = clamp(Number(first(sp.page) ?? "1"), 1, 1000000);
+  const take = clamp(Number(first(sp.take) ?? "50"), 1, 200);
+
+  const tagsRaw = first(sp.tags);
+  const { tagIds, tagNames } = parseTagsParam(tagsRaw);
+
+  const qVariants = buildQVariants(q);
+
+  // ------- Prisma where（フィルタ） -------
   const and: any[] = [];
 
   if (characterId) and.push({ characterId });
-  if (minDamage !== undefined) and.push({ damage: { gte: minDamage } });
-  if (maxDamage !== undefined) and.push({ damage: { lte: maxDamage } });
-  if (maxDrive !== undefined) and.push({ driveCost: { lte: maxDrive } });
-  if (maxSuper !== undefined) and.push({ superCost: { lte: maxSuper } });
+  if (minDamage != null) and.push({ damage: { gte: minDamage } });
+  if (maxDamage != null) and.push({ damage: { lte: maxDamage } });
+  if (maxDrive != null) and.push({ driveCost: { lte: maxDrive } });
+  if (maxSuper != null) and.push({ superCost: { lte: maxSuper } });
 
-  // tags: mode=and は「全部含む」、mode=or は「どれか含む」
-  if (tags.length > 0) {
-    if (mode === "and") {
-      for (const t of tags) {
-        and.push({
-          tags: {
-            some: { tag: { name: t } },
-          },
-        });
-      }
-    } else {
-      and.push({
-        tags: {
-          some: { tag: { name: { in: tags } } },
-        },
-      });
-    }
-  }
-
-  // q: comboText / starterText / tag名 の部分一致（OR）
-  if (q) {
+  // q: comboText / tag名 / move名
+  if (qVariants.length > 0) {
     and.push({
       OR: [
-        { comboText: { contains: q } },
-        { starterText: { contains: q } },
+        ...qVariants.map((qq) => ({ comboText: { contains: qq } })),
         { tags: { some: { tag: { name: { contains: q } } } } },
+        { steps: { some: { move: { name: { contains: q } } } } },
       ],
     });
   }
 
-  const where = and.length ? { AND: and } : {};
+  // tags: AND/OR切替（tags param は id or name を許容）
+  const tagConds: any[] = [];
+  for (const id of tagIds) tagConds.push({ tags: { some: { tagId: id } } });
+  for (const name of tagNames) tagConds.push({ tags: { some: { tag: { name } } } });
 
-  // 安定ソート（同値時は createdAt desc）
-  const orderBy =
-    sort === "damage"
-      ? [{ damage: dir }, { createdAt: "desc" }]
-      : sort === "drive"
-      ? [{ driveCost: dir }, { createdAt: "desc" }]
-      : sort === "super"
-      ? [{ superCost: dir }, { createdAt: "desc" }]
-      : [{ createdAt: dir }];
+  if (tagConds.length > 0) {
+    if (mode === "and") and.push(...tagConds);
+    else and.push({ OR: tagConds });
+  }
 
-  // UI用：キャラ一覧
+  const where = and.length > 0 ? { AND: and } : {};
+
+  // 総件数（ページネーション）
+  const total = await prisma.combo.count({ where });
+  const pages = Math.max(1, Math.ceil(total / take));
+  const page = Math.min(pageWanted, pages);
+  const skip = (page - 1) * take;
+
+  const currentParams: Record<string, string> = {
+    q,
+    mode,
+    sort,
+    dir,
+    page: String(page),
+    take: String(take),
+  };
+  if (characterId) currentParams.characterId = String(characterId);
+  if (tagsRaw) currentParams.tags = tagsRaw;
+  if (minDamage != null) currentParams.minDamage = String(minDamage);
+  if (maxDamage != null) currentParams.maxDamage = String(maxDamage);
+  if (maxDrive != null) currentParams.maxDrive = String(maxDrive);
+  if (maxSuper != null) currentParams.maxSuper = String(maxSuper);
+
+  const th = (label: string, col: SortKey) => {
+    const nextDir = sortNextDir(sort, dir, col);
+    const href = buildHref("/combos/search", currentParams, { sort: col, dir: nextDir, page: "1" });
+    return (
+      <Link href={href} className="hover:underline">
+        {label}
+        {sortMark(sort, dir, col)}
+      </Link>
+    );
+  };
+
+  // ------- rating 並び替え（平均でソートするため raw SQL） -------
+  let orderedIds: number[] | null = null;
+
+  if (sort === "rating") {
+    const dirSql = dir === "asc" ? Prisma.raw("ASC") : Prisma.raw("DESC");
+
+    const wheres: Prisma.Sql[] = [];
+
+    if (characterId) wheres.push(Prisma.sql`c.character_id = ${characterId}`);
+    if (minDamage != null) wheres.push(Prisma.sql`c.damage >= ${minDamage}`);
+    if (maxDamage != null) wheres.push(Prisma.sql`c.damage <= ${maxDamage}`);
+    if (maxDrive != null) wheres.push(Prisma.sql`c.drive_cost <= ${maxDrive}`);
+    if (maxSuper != null) wheres.push(Prisma.sql`c.super_cost <= ${maxSuper}`);
+
+    // q（スペース有無差を吸収）※combo_text のみに適用（starter_text は参照しない）
+    if (qVariants.length > 0) {
+      const likeParts: Prisma.Sql[] = [];
+
+      for (const v of qVariants) {
+        const like = `%${v}%`;
+        likeParts.push(Prisma.sql`c.combo_text LIKE ${like}`);
+      }
+
+      // タグ・技名は raw(q) を優先
+      const likeQ = `%${q}%`;
+      likeParts.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM combo_tags ct
+        JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.combo_id = c.id AND t.name LIKE ${likeQ}
+      )`);
+      likeParts.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM combo_steps cs
+        LEFT JOIN moves m ON m.id = cs.move_id
+        WHERE cs.combo_id = c.id AND m.name LIKE ${likeQ}
+      )`);
+
+      wheres.push(Prisma.sql`(${Prisma.join(likeParts, Prisma.sql` OR `)})`);
+    }
+
+    // tags: id/name 両対応
+    if (tagIds.length + tagNames.length > 0) {
+      if (mode === "or") {
+        const orParts: Prisma.Sql[] = [];
+
+        if (tagIds.length > 0) {
+          orParts.push(Prisma.sql`EXISTS (
+            SELECT 1 FROM combo_tags ct
+            WHERE ct.combo_id = c.id AND ct.tag_id IN (${Prisma.join(tagIds.map((x) => Prisma.sql`${x}`))})
+          )`);
+        }
+        if (tagNames.length > 0) {
+          orParts.push(Prisma.sql`EXISTS (
+            SELECT 1 FROM combo_tags ct
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE ct.combo_id = c.id AND t.name IN (${Prisma.join(tagNames.map((x) => Prisma.sql`${x}`))})
+          )`);
+        }
+
+        wheres.push(Prisma.sql`(${Prisma.join(orParts, Prisma.sql` OR `)})`);
+      } else {
+        for (const id of tagIds) {
+          wheres.push(Prisma.sql`EXISTS (
+            SELECT 1 FROM combo_tags ct
+            WHERE ct.combo_id = c.id AND ct.tag_id = ${id}
+          )`);
+        }
+        for (const name of tagNames) {
+          wheres.push(Prisma.sql`EXISTS (
+            SELECT 1 FROM combo_tags ct
+            JOIN tags t ON t.id = ct.tag_id
+            WHERE ct.combo_id = c.id AND t.name = ${name}
+          )`);
+        }
+      }
+    }
+
+    const whereSql =
+      wheres.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(wheres, Prisma.sql` AND `)}`
+        : Prisma.empty;
+
+    const rows = await prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
+      SELECT c.id
+      FROM combos c
+      LEFT JOIN ratings r ON r.combo_id = c.id
+      ${whereSql}
+      GROUP BY c.id
+      ORDER BY
+        (AVG(r.value) IS NULL) ASC,
+        AVG(r.value) ${dirSql},
+        COUNT(r.id) DESC,
+        c.created_at DESC,
+        c.id DESC
+      LIMIT ${take} OFFSET ${skip}
+    `);
+
+    orderedIds = rows.map((r) => r.id);
+  }
+
+  // ------- 表示用データ取得 -------
+  const include = {
+    character: { select: { id: true, name: true } },
+    tags: { include: { tag: true } },
+    _count: { select: { favorites: true, ratings: true } },
+  } as const;
+
+  let items: any[] = [];
+
+  if (orderedIds) {
+    if (orderedIds.length === 0) items = [];
+    else {
+      const fetched = await prisma.combo.findMany({
+        where: { id: { in: orderedIds } },
+        include,
+      });
+      const index = new Map<number, number>();
+      orderedIds.forEach((id, i) => index.set(id, i));
+      fetched.sort((a, b) => index.get(a.id)! - index.get(b.id)!);
+      items = fetched as any;
+    }
+  } else {
+    const orderBy =
+      sort === "created"
+        ? [{ createdAt: dir }, { id: "desc" as const }]
+        : sort === "damage"
+        ? [{ damage: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+        : sort === "drive"
+        ? [{ driveCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+        : sort === "super"
+        ? [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
+        : sort === "popular"
+        ? [{ favorites: { _count: dir } }, { createdAt: "desc" as const }, { id: "desc" as const }]
+        : [{ createdAt: "desc" as const }, { id: "desc" as const }];
+
+    items = (await prisma.combo.findMany({
+      where,
+      include,
+      orderBy: orderBy as any,
+      skip,
+      take,
+    })) as any;
+  }
+
+  const pageComboIds = items.map((c) => c.id);
+
+  // rating 平均（表示用）
+  const ratingAgg =
+    pageComboIds.length > 0
+      ? await prisma.rating.groupBy({
+          by: ["comboId"],
+          where: { comboId: { in: pageComboIds } },
+          _avg: { value: true },
+        })
+      : [];
+
+  const ratingAvgMap = new Map<number, number>();
+  for (const row of ratingAgg) {
+    const avg = row._avg.value;
+    if (avg != null) ratingAvgMap.set(row.comboId, avg);
+  }
+
+  // キャラ一覧（フォーム用）
   const characters = await prisma.character.findMany({
     select: { id: true, name: true },
     orderBy: { id: "asc" },
   });
 
-  // 件数 + 取得
-  const total = await prisma.combo.count({ where });
-  const maxPage = Math.max(1, Math.ceil(total / take));
-
-  const combos = await prisma.combo.findMany({
-    where,
-    include: {
-      character: { select: { id: true, name: true } },
-      user: { select: { id: true, name: true } },
-      tags: { include: { tag: true } },
-    },
-    orderBy,
-    skip,
-    take,
-  });
-
-  const isChecked = (name: string) => tags.includes(name);
-
-  // URL生成（ページ移動/ソート用）
-  const buildHref = (overrides: Partial<Record<string, string | undefined>>) => {
-    const usp = new URLSearchParams();
-
-    if (q) usp.set("q", q);
-    if (characterId) usp.set("characterId", String(characterId));
-    if (minDamage !== undefined) usp.set("minDamage", String(minDamage));
-    if (maxDamage !== undefined) usp.set("maxDamage", String(maxDamage));
-    if (maxDrive !== undefined) usp.set("maxDrive", String(maxDrive));
-    if (maxSuper !== undefined) usp.set("maxSuper", String(maxSuper));
-
-    usp.set("mode", mode);
-    usp.set("sort", sort);
-    usp.set("dir", dir);
-
-    // tags は複数 append
-    for (const t of tags) usp.append("tags", t);
-
-    usp.set("page", String(page));
-
-    for (const [k, v] of Object.entries(overrides)) {
-      if (v === undefined || v === "") usp.delete(k);
-      else usp.set(k, v);
-    }
-
-    return `/combos/search?${usp.toString()}`;
-  };
-
-  const sortHref = (key: SortKey) => {
-    const nextDir: SortDir = sort === key ? (dir === "asc" ? "desc" : "asc") : "desc";
-    return buildHref({ sort: key, dir: nextDir, page: "1" });
-  };
-
-  const selectedCharacterName =
-    characterId ? characters.find((c) => c.id === characterId)?.name ?? `ID:${characterId}` : null;
-
-  const selectedSummaryChips: { label: string; value: string }[] = [];
-  if (q) selectedSummaryChips.push({ label: "q", value: q });
-  if (selectedCharacterName) selectedSummaryChips.push({ label: "キャラ", value: selectedCharacterName });
-  if (minDamage !== undefined || maxDamage !== undefined)
-    selectedSummaryChips.push({
-      label: "ダメージ",
-      value: `${minDamage ?? "-"}〜${maxDamage ?? "-"}`,
-    });
-  if (maxDrive !== undefined) selectedSummaryChips.push({ label: "D上限", value: String(maxDrive) });
-  if (maxSuper !== undefined) selectedSummaryChips.push({ label: "SA上限", value: String(maxSuper) });
-  if (tags.length > 0) selectedSummaryChips.push({ label: `タグ(${mode.toUpperCase()})`, value: tags.join(", ") });
+  const chip = (label: string, patch: Record<string, string | null>) => (
+    <Link
+      href={buildHref("/combos/search", currentParams, patch)}
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs hover:bg-gray-50"
+    >
+      <span>{label}</span>
+      <span className="text-gray-500">×</span>
+    </Link>
+  );
 
   return (
-    <main style={{ maxWidth: "1200px", margin: "20px auto", padding: "0 16px 40px" }}>
-      <h1 style={{ marginBottom: "8px" }}>コンボ検索</h1>
+    <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <h1 className="text-2xl font-bold">コンボ検索</h1>
 
-      {/* フィルタフォーム（GET） */}
+      {/* 検索フォーム */}
       <form
         action="/combos/search"
-        method="GET"
-        style={{
-          border: "1px solid #e0e0e0",
-          borderRadius: "8px",
-          padding: "12px",
-          background: "#fafafa",
-          marginBottom: "14px",
-        }}
+        method="get"
+        className="grid grid-cols-1 md:grid-cols-12 gap-3 rounded border p-4 bg-white"
       >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 220px 220px 220px", gap: "10px" }}>
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>キーワード</div>
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="コンボ表記 / 始動 / タグ"
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-          </div>
+        <input type="hidden" name="mode" value={mode} />
+        <input type="hidden" name="sort" value={sort} />
+        <input type="hidden" name="dir" value={dir} />
+        <input type="hidden" name="take" value={String(take)} />
 
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>キャラ</div>
-            <select
-              name="characterId"
-              defaultValue={characterId?.toString() ?? ""}
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            >
-              <option value="">指定なし</option>
-              {characters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>Dゲージ上限</div>
-            <input
-              name="maxDrive"
-              defaultValue={maxDrive?.toString() ?? ""}
-              placeholder="例: 3"
-              inputMode="numeric"
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-          </div>
-
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>SAゲージ上限</div>
-            <input
-              name="maxSuper"
-              defaultValue={maxSuper?.toString() ?? ""}
-              placeholder="例: 1"
-              inputMode="numeric"
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-          </div>
-
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>ダメージ範囲</div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <input
-                name="minDamage"
-                defaultValue={minDamage?.toString() ?? ""}
-                placeholder="min"
-                inputMode="numeric"
-                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-              />
-              <input
-                name="maxDamage"
-                defaultValue={maxDamage?.toString() ?? ""}
-                placeholder="max"
-                inputMode="numeric"
-                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>ソート</div>
-            <select
-              name="sort"
-              defaultValue={sort}
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            >
-              <option value="created">投稿日</option>
-              <option value="damage">ダメージ</option>
-              <option value="drive">Dゲージ</option>
-              <option value="super">SAゲージ</option>
-            </select>
-          </div>
-
-          <div>
-            <div style={{ fontSize: "12px", color: "#666" }}>昇順/降順</div>
-            <select
-              name="dir"
-              defaultValue={dir}
-              style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-            >
-              <option value="desc">降順</option>
-              <option value="asc">昇順</option>
-            </select>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "end", gap: "8px" }}>
-            <button
-              type="submit"
-              style={{
-                padding: "10px 14px",
-                borderRadius: "6px",
-                border: "1px solid #2b74ff",
-                background: "#e4efff",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
-            >
-              検索
-            </button>
-            <Link href="/combos/search" style={{ fontSize: "12px", color: "#666" }}>
-              クリア
-            </Link>
-          </div>
+        <div className="md:col-span-4">
+          <div className="text-xs text-gray-500 mb-1">キーワード（コンボ/タグ/技名）</div>
+          <input
+            name="q"
+            defaultValue={q}
+            className="w-full rounded border px-3 py-2 text-sm"
+            placeholder="例: 2中K / 236弱P / 対空"
+          />
         </div>
 
-        {/* タグモード */}
-        <div style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ fontSize: "12px", color: "#666" }}>タグ条件：</div>
-          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-            <input type="radio" name="mode" value="and" defaultChecked={mode === "and"} />
-            AND（全部含む）
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-            <input type="radio" name="mode" value="or" defaultChecked={mode === "or"} />
-            OR（どれか含む）
-          </label>
-          <div style={{ fontSize: "12px", color: "#888" }}>
-            ※タグを複数選択したときの挙動
-          </div>
+        <div className="md:col-span-3">
+          <div className="text-xs text-gray-500 mb-1">キャラ</div>
+          <select
+            name="characterId"
+            defaultValue={characterId ? String(characterId) : ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+          >
+            <option value="">全キャラ</option>
+            {characters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* タグ群（?tags=xxx を複数送る） */}
-        <div style={{ marginTop: "10px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px" }}>
-          <TagBox title="カテゴリ" options={[...CATEGORY_OPTIONS]} isChecked={isChecked} />
-          <TagBox title="ヒット状況" options={[...HIT_OPTIONS]} isChecked={isChecked} />
-          <TagBox title="属性" options={[...ATTRIBUTE_OPTIONS]} isChecked={isChecked} />
-          <TagBox title="属性タグ" options={[...PROPERTY_TAG_OPTIONS]} isChecked={isChecked} />
+        <div className="md:col-span-5">
+          <div className="text-xs text-gray-500 mb-1">タグ（id or 名前をカンマ区切り）</div>
+          <input
+            name="tags"
+            defaultValue={tagsRaw ?? ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+            placeholder="例: 1,3  または  ODコン,対空コン"
+          />
         </div>
 
-        {/* 画面下に隠れやすいので、タグ選択後の検索ボタンも置く */}
-        <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
+        <div className="md:col-span-2">
+          <div className="text-xs text-gray-500 mb-1">minDamage</div>
+          <input
+            name="minDamage"
+            defaultValue={minDamage ?? ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-gray-500 mb-1">maxDamage</div>
+          <input
+            name="maxDamage"
+            defaultValue={maxDamage ?? ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-gray-500 mb-1">maxDrive</div>
+          <input
+            name="maxDrive"
+            defaultValue={maxDrive ?? ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-gray-500 mb-1">maxSuper</div>
+          <input
+            name="maxSuper"
+            defaultValue={maxSuper ?? ""}
+            className="w-full rounded border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-gray-500 mb-1">タグ条件</div>
+          <select name="mode" defaultValue={mode} className="w-full rounded border px-3 py-2 text-sm">
+            <option value="and">AND</option>
+            <option value="or">OR</option>
+          </select>
+        </div>
+
+        <div className="md:col-span-2 flex items-end gap-2">
           <button
             type="submit"
-            style={{
-              padding: "10px 14px",
-              borderRadius: "6px",
-              border: "1px solid #2b74ff",
-              background: "#e4efff",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
+            className="w-full rounded bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700"
           >
-            この条件で検索
+            検索
           </button>
-          <Link href="/combos/search" style={{ fontSize: "13px", color: "#666", alignSelf: "center" }}>
-            条件をリセット
+          <Link href="/combos/search" className="w-full text-center rounded border px-3 py-2 text-sm hover:bg-gray-50">
+            クリア
           </Link>
         </div>
       </form>
 
-      {/* 条件サマリー */}
-      {selectedSummaryChips.length > 0 && (
-        <div style={{ marginBottom: "10px" }}>
-          <div style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}>選択中の条件</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {selectedSummaryChips.map((c) => (
-              <span
-                key={`${c.label}:${c.value}`}
-                style={{
-                  padding: "3px 8px",
-                  borderRadius: "999px",
-                  border: "1px solid #ddd",
-                  background: "#fff",
-                  fontSize: "12px",
-                }}
-                title={c.value}
-              >
-                <b>{c.label}</b>: {c.value}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 結果メタ */}
-      <div style={{ marginBottom: "8px", fontSize: "13px", color: "#666", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-        <span>ヒット件数: {total}</span>
-        <span>表示: {skip + 1}〜{Math.min(skip + take, total)} 件</span>
-        <span>ページ: {page}/{maxPage}</span>
+      {/* 条件チップ */}
+      <div className="flex flex-wrap gap-2">
+        {q && chip(`q: ${q}`, { q: null, page: "1" })}
+        {characterId && chip(`character: ${characterId}`, { characterId: null, page: "1" })}
+        {tagsRaw && chip(`tags: ${tagsRaw}`, { tags: null, page: "1" })}
+        {minDamage != null && chip(`minDamage: ${minDamage}`, { minDamage: null, page: "1" })}
+        {maxDamage != null && chip(`maxDamage: ${maxDamage}`, { maxDamage: null, page: "1" })}
+        {maxDrive != null && chip(`maxDrive: ${maxDrive}`, { maxDrive: null, page: "1" })}
+        {maxSuper != null && chip(`maxSuper: ${maxSuper}`, { maxSuper: null, page: "1" })}
+        {mode === "or" && chip(`mode: OR`, { mode: "and", page: "1" })}
       </div>
 
-      {/* 結果テーブル */}
-      <div style={{ border: "1px solid #e0e0e0", borderRadius: "8px", overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-          <thead style={{ backgroundColor: "#f5f5f5", borderBottom: "1px solid #ddd" }}>
-            <tr>
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>キャラ</th>
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>始動</th>
-              <th style={{ padding: "10px 8px", textAlign: "left" }}>コンボ表記</th>
+      {/* 件数＋ページネーション */}
+      <div className="flex items-center justify-between text-sm text-gray-600">
+        <div>該当 {total} 件</div>
+        <div className="flex items-center gap-2">
+          <Link
+            href={buildHref("/combos/search", currentParams, { page: String(Math.max(1, page - 1)) })}
+            className={`px-3 py-1 rounded border ${page <= 1 ? "pointer-events-none opacity-40" : "hover:bg-gray-50"}`}
+          >
+            前へ
+          </Link>
+          <span>
+            {page} / {pages}
+          </span>
+          <Link
+            href={buildHref("/combos/search", currentParams, { page: String(Math.min(pages, page + 1)) })}
+            className={`px-3 py-1 rounded border ${page >= pages ? "pointer-events-none opacity-40" : "hover:bg-gray-50"}`}
+          >
+            次へ
+          </Link>
+        </div>
+      </div>
 
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortHref("damage")} style={{ color: "#333", textDecoration: "none" }}>
-                  ダメ{sort === "damage" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortHref("drive")} style={{ color: "#333", textDecoration: "none" }}>
-                  D{sort === "drive" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
-              <th style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                <Link href={sortHref("super")} style={{ color: "#333", textDecoration: "none" }}>
-                  SA{sort === "super" ? (dir === "asc" ? " ↑" : " ↓") : ""}
-                </Link>
-              </th>
+      {/* 結果 */}
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b bg-gray-100 text-gray-700">
+            <th className="p-2">キャラ</th>
+            <th className="p-2">始動</th>
+            <th className="p-2">コンボ</th>
+            <th className="p-2">{th("作成", "created")}</th>
+            <th className="p-2">{th("ダメージ", "damage")}</th>
+            <th className="p-2">{th("D消費", "drive")}</th>
+            <th className="p-2">{th("SA消費", "super")}</th>
+            <th className="p-2">{th("お気に入り", "popular")}</th>
+            <th className="p-2">{th("評価", "rating")}</th>
+            <th className="p-2">タグ</th>
+            <th className="p-2">詳細</th>
+          </tr>
+        </thead>
 
-              <th style={{ padding: "10px 8px", textAlign: "left", whiteSpace: "nowrap" }}>タグ</th>
-              <th style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap" }}>詳細</th>
-            </tr>
-          </thead>
+        <tbody>
+          {items.map((combo: any) => {
+            const starter = starterFromComboText(String(combo.comboText ?? ""));
+            const tags = combo.tags?.map((t: any) => t.tag.name) ?? [];
 
-          <tbody>
-            {combos.length === 0 ? (
-              <tr>
-                <td colSpan={8} style={{ padding: "14px 10px", color: "#777" }}>
-                  条件に一致するコンボがありません。
+            const favCount = combo._count?.favorites ?? 0;
+            const rCount = combo._count?.ratings ?? 0;
+            const rAvg = ratingAvgMap.get(combo.id);
+            const rLabel = rAvg == null ? "-" : rAvg.toFixed(2);
+
+            return (
+              <tr key={combo.id} className="border-b hover:bg-gray-50">
+                <td className="p-2">{combo.character?.name ?? "-"}</td>
+                <td className="p-2 font-bold">{starter}</td>
+                <td className="p-2">
+                  <div
+                    className="max-w-[520px]"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical" as any,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {combo.comboText}
+                  </div>
+                </td>
+                <td className="p-2">{new Date(combo.createdAt).toLocaleDateString("ja-JP")}</td>
+                <td className="p-2 font-bold">{combo.damage ?? "-"}</td>
+                <td className="p-2">{combo.driveCost ?? 0}</td>
+                <td className="p-2">{combo.superCost ?? 0}</td>
+                <td className="p-2">{favCount}</td>
+                <td className="p-2">
+                  {rLabel} <span className="text-xs text-gray-500">({rCount})</span>
+                </td>
+                <td className="p-2 space-x-1">
+                  {tags.slice(0, 4).map((name: string) => (
+                    <span key={name} className="inline-block bg-gray-200 px-2 py-1 rounded text-xs">
+                      {name}
+                    </span>
+                  ))}
+                  {tags.length > 4 && <span className="text-xs text-gray-500">+{tags.length - 4}</span>}
+                </td>
+                <td className="p-2">
+                  <Link href={`/combos/${combo.id}`} className="text-blue-600 hover:underline">
+                    →
+                  </Link>
                 </td>
               </tr>
-            ) : (
-              combos.map((combo: any) => {
-                const rawTags = combo.tags?.map((ct: any) => ct.tag?.name).filter(Boolean) ?? [];
-                const tagsSorted = sortTagsByPriority(rawTags);
+            );
+          })}
 
-                return (
-                  <tr key={combo.id} style={{ borderTop: "1px solid #eee" }}>
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {combo.character?.name ?? "-"}
-                    </td>
-
-                    <td style={{ padding: "10px 8px", whiteSpace: "nowrap", verticalAlign: "top", fontWeight: "bold" }}>
-                      {combo.starterText ?? "-"}
-                    </td>
-
-                    <td style={{ padding: "10px 8px", verticalAlign: "top", maxWidth: "520px" }}>
-                      <div
-                        style={{
-                          overflow: "hidden",
-                          display: "-webkit-box",
-                          WebkitBoxOrient: "vertical" as any,
-                          WebkitLineClamp: 2 as any,
-                          lineHeight: "1.4",
-                        }}
-                        title={combo.comboText}
-                      >
-                        {combo.comboText}
-                      </div>
-                    </td>
-
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {combo.damage ?? "-"}
-                    </td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {combo.driveCost ?? 0}
-                    </td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {combo.superCost ?? 0}
-                    </td>
-
-                    <td style={{ padding: "10px 8px", verticalAlign: "top", maxWidth: "260px" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                        {tagsSorted.length === 0 ? (
-                          <span style={{ color: "#aaa" }}>タグなし</span>
-                        ) : (
-                          tagsSorted.slice(0, 10).map((t: string) => (
-                            <span
-                              key={t}
-                              style={{
-                                padding: "2px 6px",
-                                borderRadius: "999px",
-                                border: "1px solid #ddd",
-                                backgroundColor: "#fafafa",
-                                fontSize: "12px",
-                              }}
-                            >
-                              {t}
-                            </span>
-                          ))
-                        )}
-                        {tagsSorted.length > 10 && <span style={{ color: "#888", fontSize: "12px" }}>…</span>}
-                      </div>
-                    </td>
-
-                    <td style={{ padding: "10px 8px", textAlign: "center", whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      <Link href={`/combos/${combo.id}`} style={{ color: "#2b74ff", fontSize: "12px" }}>
-                        詳細
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ページネーション */}
-      {total > 0 && (
-        <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <Link
-              href={buildHref({ page: String(Math.max(1, page - 1)) })}
-              aria-disabled={page <= 1}
-              style={{
-                pointerEvents: page <= 1 ? "none" : "auto",
-                color: page <= 1 ? "#aaa" : "#2b74ff",
-                textDecoration: "none",
-                border: "1px solid #ddd",
-                borderRadius: "6px",
-                padding: "8px 10px",
-                background: "#fff",
-              }}
-            >
-              ← 前へ
-            </Link>
-
-            <Link
-              href={buildHref({ page: String(Math.min(maxPage, page + 1)) })}
-              aria-disabled={page >= maxPage}
-              style={{
-                pointerEvents: page >= maxPage ? "none" : "auto",
-                color: page >= maxPage ? "#aaa" : "#2b74ff",
-                textDecoration: "none",
-                border: "1px solid #ddd",
-                borderRadius: "6px",
-                padding: "8px 10px",
-                background: "#fff",
-              }}
-            >
-              次へ →
-            </Link>
-          </div>
-
-          <div style={{ fontSize: "12px", color: "#666" }}>
-            1ページ {take} 件 / 全 {total} 件
-          </div>
-        </div>
-      )}
-    </main>
-  );
-}
-
-function TagBox({
-  title,
-  options,
-  isChecked,
-}: {
-  title: string;
-  options: readonly string[];
-  isChecked: (name: string) => boolean;
-}) {
-  return (
-    <div style={{ border: "1px solid #e0e0e0", borderRadius: "8px", padding: "10px", background: "#fff" }}>
-      <div style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}>{title}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        {options.map((t) => (
-          <label key={t} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-            <input type="checkbox" name="tags" value={t} defaultChecked={isChecked(t)} />
-            {t}
-          </label>
-        ))}
-      </div>
+          {items.length === 0 && (
+            <tr>
+              <td colSpan={11} className="p-6 text-center text-gray-500">
+                該当するコンボがありません。
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -21,11 +21,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Invalid value (1-5)" }, { status: 400 });
   }
 
-  const combo = await prisma.combo.findUnique({ where: { id: comboId }, select: { id: true } });
-  if (!combo) {
-    return NextResponse.json({ success: false, error: "Combo not found" }, { status: 404 });
-  }
-
   const key = { comboId_userId: { comboId, userId: user.id } };
 
   const result = await prisma.$transaction(async (tx) => {

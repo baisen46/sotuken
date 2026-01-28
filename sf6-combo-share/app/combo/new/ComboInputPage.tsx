@@ -18,6 +18,41 @@ type StepItem = {
   moveId: number | null;
   attributeId: number | null;
 };
+const META_TOKENS = new Set([
+  ">", "CR", "DR", "DI", "OD", "SA", "SA1", "SA2", "SA3", "J", "A",
+]);
+
+function mergeNumberWithNext(labels: string[]) {
+  const out: string[] = [];
+  for (let i = 0; i < labels.length; i++) {
+    const cur = labels[i];
+    const next = labels[i + 1];
+
+    // "2" + "中K" -> "2中K"（次がメタ記号なら結合しない）
+    if (/^\d+$/.test(cur) && next && !META_TOKENS.has(next)) {
+      out.push(cur + next);
+      i++; // next を消費
+      continue;
+    }
+
+    out.push(cur);
+  }
+  return out;
+}
+
+function formatComboTextFromHistory(history: { label: string }[]) {
+  const labels = history.map((h) => h.label);
+  return mergeNumberWithNext(labels).join(" ");
+}
+
+function formatStarterText(history: { label: string }[]) {
+  const labels: string[] = [];
+  for (const h of history) {
+    if (h.label === ">") break;
+    labels.push(h.label);
+  }
+  return mergeNumberWithNext(labels).join(" ");
+}
 
 export default function ComboInputPage() {
   // ▼ キャラ
@@ -31,7 +66,7 @@ export default function ComboInputPage() {
   const [history, setHistory] = useState<StepItem[]>([]);
 
   // ▼ コンボテキスト
-  const comboText = history.map((h) => h.label).join(" ");
+const comboText = formatComboTextFromHistory(history);
 
   // ▼ ダメージ
   const [damage, setDamage] = useState<string>("");
