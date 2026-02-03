@@ -53,8 +53,9 @@ export default function ComboActions(props: {
         return;
       }
 
-      setIsFavorited(data.isFavorited);
-      setFavoriteCount(data.favoriteCount);
+      setIsFavorited(!!data.isFavorited);
+      setFavoriteCount(Number(data.favoriteCount ?? favoriteCount));
+      router.refresh();
     });
   };
 
@@ -78,9 +79,10 @@ export default function ComboActions(props: {
         return;
       }
 
-      setMyRating(data.myRating);
-      setRatingAvg(data.ratingAvg);
-      setRatingCount(data.ratingCount);
+      setMyRating(data.myRating ?? value);
+      setRatingAvg(data.ratingAvg ?? ratingAvg);
+      setRatingCount(data.ratingCount ?? ratingCount);
+      router.refresh();
     });
   };
 

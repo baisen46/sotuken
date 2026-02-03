@@ -136,12 +136,12 @@ export default async function TorikorePage() {
             </>
           ) : (
             <span className="text-gray-700">
-              お気に入り数→評価数→新着 の順で自動選出（※タグ「とりコレ」を作れば手動選定も可能）
+              お気に入り数→評価数→新着 の順で自動選出
             </span>
           )}
         </div>
         <div className="text-xs text-gray-600">
-          手動で選びたい場合：コンボにタグ {badge("とりコレ")} を付けるだけでOK。
+         
         </div>
       </div>
 
