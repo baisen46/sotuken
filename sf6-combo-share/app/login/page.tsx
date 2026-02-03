@@ -1,92 +1,86 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("test@example.com");
-  const [password, setPassword] = useState("password123");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setMessage(null);
+    setError(null);
 
+    if (!email.trim() || !password) {
+      setError("メールアドレスとパスワードを入力してください");
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok || !data.success) {
-        setMessage(data.error ?? "ログインに失敗しました。");
-        setLoading(false);
+      if (!res.ok) {
+        setError(data?.error ?? data?.message ?? `ログイン失敗（${res.status}）`);
         return;
       }
 
-      setMessage("ログインに成功しました。");
-      router.push("/");
-    } catch (err) {
-      console.error(err);
-      setMessage("通信エラーが発生しました。");
+      // ✅ ここが重要：Header(Server Component)を確実に更新する
+      window.location.href = "/";
+    } catch (err: any) {
+      setError(err?.message ? String(err.message) : "ログイン失敗");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  };
+  }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-100">
-      <div className="w-full max-w-md bg-white shadow p-6 rounded">
-        <h1 className="text-xl font-bold mb-4">ログイン</h1>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              メールアドレス
-            </label>
-            <input
-              type="email"
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              パスワード
-            </label>
-            <input
-              type="password"
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full py-2 rounded bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
-            disabled={loading}
-          >
-            {loading ? "ログイン中..." : "ログイン"}
-          </button>
-        </form>
-
-        {message && (
-          <p className="mt-4 text-sm text-center text-red-600">{message}</p>
-        )}
+    <div className="container-page space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">ログイン</h1>
+        <Link href="/" className="link">
+          ホームへ →
+        </Link>
       </div>
-    </main>
+
+      <form onSubmit={onSubmit} className="card-pad space-y-3">
+        <label className="block space-y-1">
+          <div className="text-xs text-gray-600">メールアドレス</div>
+          <input
+            className="border rounded px-3 py-2 w-full"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+          />
+        </label>
+
+        <label className="block space-y-1">
+          <div className="text-xs text-gray-600">パスワード</div>
+          <input
+            className="border rounded px-3 py-2 w-full"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+
+        {error && <div className="text-sm text-red-600">{error}</div>}
+
+        <button className="btn-primary" type="submit" disabled={submitting}>
+          {submitting ? "ログイン中…" : "ログイン"}
+        </button>
+      </form>
+    </div>
   );
 }

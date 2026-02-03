@@ -17,8 +17,9 @@ function setIf(usp: URLSearchParams, key: string, value: string | undefined) {
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage(props: { searchParams?: SearchParams }) {
-  const sp = props.searchParams ?? {};
+export default async function HomePage(props: { searchParams?: Promise<SearchParams> }) {
+  // ★ Next.js: searchParams は Promise の場合があるので先に unwrap
+  const sp: SearchParams = props.searchParams ? await props.searchParams : {};
 
   const characters = await prisma.character.findMany({
     orderBy: { id: "asc" },

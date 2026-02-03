@@ -2,24 +2,8 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function CharacterCombosPage(props: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await props.params;
-
-  // 不正値ガード（"abc" とかを弾く）
-  const n = Number(id);
-  if (!Number.isInteger(n) || n <= 0) {
-    redirect("/combos/search");
-  }
-
-  redirect(`/combos/search?characterId=${encodeURIComponent(String(n))}`);
-}
-import { redirect } from "next/navigation";
-
-export const dynamic = "force-dynamic";
-
 type SearchParams = Record<string, string | string[] | undefined>;
+type SP = SearchParams | Promise<SearchParams>;
 
 function first(sp: SearchParams, key: string): string | undefined {
   const v = sp[key];
@@ -35,7 +19,7 @@ function setIf(usp: URLSearchParams, key: string, value: string | undefined) {
 
 export default async function CharacterCombosPage(props: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<SearchParams> | SearchParams;
+  searchParams?: SP;
 }) {
   const { id } = await props.params;
 
@@ -45,7 +29,8 @@ export default async function CharacterCombosPage(props: {
     redirect("/combos/search");
   }
 
-  const sp = props.searchParams ? await props.searchParams : {};
+  // searchParams は Promise の可能性があるので unwrap
+  const sp: SearchParams = await Promise.resolve(props.searchParams ?? {});
 
   // /combos/search 側が受ける統一キーを引き継ぐ
   const usp = new URLSearchParams();
@@ -53,14 +38,14 @@ export default async function CharacterCombosPage(props: {
   // 固定：選択キャラ
   usp.set("characterId", String(n));
 
-  // 引き継ぎ（A方針の統一キー）
+  // 引き継ぎ（統一キー）
   setIf(usp, "q", first(sp, "q"));
   setIf(usp, "playStyle", first(sp, "playStyle"));
   setIf(usp, "sort", first(sp, "sort"));
   setIf(usp, "dir", first(sp, "dir"));
   setIf(usp, "take", first(sp, "take"));
 
-  // 検索ページで使ってる拡張フィルタも一応引き継ぎ（存在しても害はない）
+  // 拡張フィルタ（存在しても害はない）
   setIf(usp, "minDamage", first(sp, "minDamage"));
   setIf(usp, "maxDamage", first(sp, "maxDamage"));
   setIf(usp, "maxDrive", first(sp, "maxDrive"));

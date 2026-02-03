@@ -1,15 +1,45 @@
-// app/mypage/page.tsx
+// sf6-combo-share/app/mypage/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { starterFromComboText } from "@/lib/notation";
+
+export const dynamic = "force-dynamic";
+
+// 詳細ページのベース（あなたのプロジェクトで /combos/[id] を正とする）
+const DETAIL_BASE = "/combos";
+
+function safeStarter(comboText: string | null | undefined) {
+  const t = (comboText ?? "").trim();
+  if (!t) return "-";
+
+  // 既存ヘルパーがあるならそれを優先
+  try {
+    const s = starterFromComboText(t);
+    if (s && s !== "-") return s;
+  } catch {
+    // 失敗しても下のフォールバックへ
+  }
+
+  // フォールバック：最初の区切りまでを始動扱い
+  // ComboInputPage.tsx の仕様（" > "が入る）に合わせる
+  const seps = [">", "＞", "→", "➡", "⇒"];
+  let cut = t.length;
+  for (const sep of seps) {
+    const idx = t.indexOf(sep);
+    if (idx >= 0) cut = Math.min(cut, idx);
+  }
+  const head = t.slice(0, cut).trim();
+  return head || "-";
+}
 
 export default async function MyPage() {
   const user = await getCurrentUser();
 
   // 未ログイン → ログイン画面へ
   if (!user) {
-    redirect("/login?from=mypage");
+    redirect("/login?from=/mypage");
   }
 
   // 自分の投稿コンボを取得（新しい順）
@@ -17,15 +47,9 @@ export default async function MyPage() {
     where: { userId: user.id },
     include: {
       character: true,
-      tags: {
-        include: {
-          tag: true,
-        },
-      },
+      tags: { include: { tag: true } },
     },
-    orderBy: {
-      createdAt: "desc",
-    },
+    orderBy: { createdAt: "desc" },
   });
 
   return (
@@ -38,7 +62,7 @@ export default async function MyPage() {
     >
       <h1 style={{ marginBottom: "4px" }}>マイページ</h1>
       <p style={{ fontSize: "13px", color: "#555", marginBottom: "16px" }}>
-        ログインユーザー：{user.name ?? user.email}
+        ログインユーザー：{user.name ?? (user as any).email ?? "-"}
       </p>
 
       <section style={{ marginBottom: "32px" }}>
@@ -61,9 +85,7 @@ export default async function MyPage() {
             }}
           >
             <div style={{ color: "#777", marginBottom: "2px" }}>投稿コンボ数</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold" }}>
-              {combos.length}
-            </div>
+            <div style={{ fontSize: "20px", fontWeight: "bold" }}>{combos.length}</div>
           </div>
 
           <div
@@ -75,20 +97,12 @@ export default async function MyPage() {
               minWidth: "220px",
             }}
           >
-            <div style={{ color: "#777", marginBottom: "2px" }}>
-              ショートカット
-            </div>
+            <div style={{ color: "#777", marginBottom: "2px" }}>ショートカット</div>
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <Link
-                href="/combo/new"
-                style={{ fontSize: "13px", color: "#2b74ff" }}
-              >
+              <Link href="/combo/new" style={{ fontSize: "13px", color: "#2b74ff" }}>
                 コンボを投稿する
               </Link>
-              <Link
-                href="/combos"
-                style={{ fontSize: "13px", color: "#2b74ff" }}
-              >
+              <Link href="/combos" style={{ fontSize: "13px", color: "#2b74ff" }}>
                 コンボ一覧を見る
               </Link>
             </div>
@@ -97,13 +111,11 @@ export default async function MyPage() {
       </section>
 
       <section>
-        <h2 style={{ fontSize: "16px", marginBottom: "8px" }}>
-          自分の投稿コンボ一覧
-        </h2>
+        <h2 style={{ fontSize: "16px", marginBottom: "8px" }}>自分の投稿コンボ一覧</h2>
 
         {combos.length === 0 ? (
           <p style={{ fontSize: "13px", color: "#777" }}>
-            まだコンボを投稿していません。
+            まだコンボを投稿していません。{" "}
             <Link href="/combo/new" style={{ color: "#2b74ff" }}>
               コンボ投稿ページ
             </Link>
@@ -131,209 +143,89 @@ export default async function MyPage() {
                 }}
               >
                 <tr>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "left",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    投稿日
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "left",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    キャラ
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "left",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    始動
-                  </th>
+                  <th style={{ padding: "8px", textAlign: "left", whiteSpace: "nowrap" }}>投稿日</th>
+                  <th style={{ padding: "8px", textAlign: "left", whiteSpace: "nowrap" }}>キャラ</th>
+                  <th style={{ padding: "8px", textAlign: "left", whiteSpace: "nowrap" }}>始動</th>
                   <th style={{ padding: "8px", textAlign: "left" }}>コンボ表記</th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    ダメージ
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Dゲージ
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    SAゲージ
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "left",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    タグ
-                  </th>
-                  <th
-                    style={{
-                      padding: "8px",
-                      textAlign: "center",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    詳細
-                  </th>
+                  <th style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>ダメージ</th>
+                  <th style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>Dゲージ</th>
+                  <th style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>SAゲージ</th>
+                  <th style={{ padding: "8px", textAlign: "left", whiteSpace: "nowrap" }}>タグ</th>
+                  <th style={{ padding: "8px", textAlign: "center", whiteSpace: "nowrap" }}>詳細</th>
                 </tr>
               </thead>
+
               <tbody>
                 {combos.map((combo) => {
-                  const created = new Date(combo.createdAt);
-                  const createdStr = `${created.getFullYear()}/${
-                    created.getMonth() + 1
-                  }/${created.getDate()}`;
-
-                  const tags =
-                    combo.tags?.map((ct: any) => ct.tag?.name).filter(Boolean) ??
-                    [];
+                  const starter = safeStarter(combo.comboText);
+                  const tags = combo.tags?.map((t) => t.tag.name) ?? [];
 
                   return (
-                    <tr key={combo.id} style={{ borderTop: "1px solid #eee" }}>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {createdStr}
+                    <tr key={combo.id} style={{ borderBottom: "1px solid #eee" }}>
+                      <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
+                        {new Date(combo.createdAt).toLocaleDateString("ja-JP")}
                       </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
+
+                      <td style={{ padding: "8px", whiteSpace: "nowrap" }}>
                         {combo.character?.name ?? "-"}
                       </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          whiteSpace: "nowrap",
-                          maxWidth: "140px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {combo.starterText ?? "-"}
+
+                      <td style={{ padding: "8px", whiteSpace: "nowrap", fontWeight: "bold" }}>
+                        {starter}
                       </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          maxWidth: "260px",
-                        }}
-                      >
-                        <span>{combo.comboText}</span>
-                      </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          textAlign: "right",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {combo.damage ?? "-"}
-                      </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          textAlign: "right",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {combo.driveCost ?? 0}
-                      </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          textAlign: "right",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {combo.superCost ?? 0}
-                      </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          maxWidth: "220px",
-                        }}
-                      >
+
+                      <td style={{ padding: "8px" }}>
                         <div
                           style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: "4px",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical" as any,
+                            overflow: "hidden",
                           }}
                         >
-                          {tags.length === 0 ? (
-                            <span style={{ color: "#aaa" }}>タグなし</span>
-                          ) : (
-                            tags.map((t: string) => (
-                              <span
-                                key={t}
-                                style={{
-                                  padding: "2px 6px",
-                                  borderRadius: "999px",
-                                  border: "1px solid #ddd",
-                                  backgroundColor: "#fafafa",
-                                }}
-                              >
-                                {t}
-                              </span>
-                            ))
+                          {combo.comboText}
+                        </div>
+                      </td>
+
+                      <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        {combo.damage ?? "-"}
+                      </td>
+
+                      <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        {combo.driveCost ?? 0}
+                      </td>
+
+                      <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        {combo.superCost ?? 0}
+                      </td>
+
+                      <td style={{ padding: "8px" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {tags.slice(0, 6).map((name) => (
+                            <span
+                              key={name}
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: "999px",
+                                border: "1px solid #e0e0e0",
+                                background: "#fafafa",
+                                fontSize: "12px",
+                              }}
+                            >
+                              {name}
+                            </span>
+                          ))}
+                          {tags.length > 6 && (
+                            <span style={{ fontSize: "12px", color: "#777" }}>
+                              +{tags.length - 6}
+                            </span>
                           )}
                         </div>
                       </td>
-                      <td
-                        style={{
-                          padding: "8px",
-                          verticalAlign: "top",
-                          textAlign: "center",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <Link
-                          href={`/combos/${combo.id}`}
-                          style={{ color: "#2b74ff", fontSize: "12px" }}
-                        >
-                          詳細
+
+                      <td style={{ padding: "8px", textAlign: "center", whiteSpace: "nowrap" }}>
+                        <Link href={`${DETAIL_BASE}/${combo.id}`} style={{ color: "#2b74ff" }}>
+                          →
                         </Link>
                       </td>
                     </tr>

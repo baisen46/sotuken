@@ -1,120 +1,109 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 
-export const runtime = "nodejs";
+type StepInput = {
+  order: number;
+  moveId: number | null;
+  attributeId: number | null;
+  note: string | null;
+};
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return NextResponse.json(
-        { success: false, error: "ログインが必要です。" },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json();
 
-    const {
-      // 必須
-      characterId,
-      playStyle, // "MODERN" | "CLASSIC"
+    const characterId = Number(body.characterId);
+    const conditionId = Number(body.conditionId);
+    const attributeId = body.attributeId === null || body.attributeId === undefined ? null : Number(body.attributeId);
+    const playStyle = body.playStyle; // "MODERN" | "CLASSIC"
+    const comboText = String(body.comboText ?? "");
+    const damage = body.damage === null || body.damage === undefined ? null : Number(body.damage);
+    const frame = body.frame === null || body.frame === undefined ? null : Number(body.frame);
+    const driveCost = Number(body.driveCost ?? 0);
+    const superCost = Number(body.superCost ?? 0);
+    const description = body.description === null || body.description === undefined ? null : String(body.description);
 
-      // 任意（null や undefined でもOK）
-      conditionId,
-      attributeId,
-      comboText,
-      damage,
-      frame,
-      version,
-      description,
-      videoUrl,
-      driveCost,
-      superCost,
-      parentComboId,
+    const steps: StepInput[] = Array.isArray(body.steps) ? body.steps : [];
+    const tags: string[] = Array.isArray(body.tags) ? body.tags.filter((t: any) => typeof t === "string" && t.trim() !== "") : [];
 
-      // 手順・タグ（ある場合）
-      steps,
-      tags,
-    } = body;
-
-    // 必須チェック
-    if (!characterId || !playStyle || !comboText) {
-      return NextResponse.json(
-        { success: false, error: "characterId, playStyle, comboText は必須です。" },
-        { status: 400 }
-      );
+    // 基本バリデーション
+    if (!Number.isFinite(characterId) || characterId <= 0) {
+      return NextResponse.json({ success: false, error: "Invalid characterId" }, { status: 400 });
+    }
+    if (!Number.isFinite(conditionId) || conditionId <= 0) {
+      return NextResponse.json({ success: false, error: "Invalid conditionId" }, { status: 400 });
+    }
+    if (attributeId !== null && (!Number.isFinite(attributeId) || attributeId <= 0)) {
+      return NextResponse.json({ success: false, error: "Invalid attributeId" }, { status: 400 });
+    }
+    if (playStyle !== "MODERN" && playStyle !== "CLASSIC") {
+      return NextResponse.json({ success: false, error: "Invalid playStyle" }, { status: 400 });
+    }
+    if (!comboText.trim()) {
+      return NextResponse.json({ success: false, error: "comboText is empty" }, { status: 400 });
+    }
+    if (damage !== null && (!Number.isFinite(damage) || damage < 0)) {
+      return NextResponse.json({ success: false, error: "Invalid damage" }, { status: 400 });
+    }
+    if (frame !== null && !Number.isFinite(frame)) {
+      return NextResponse.json({ success: false, error: "Invalid frame" }, { status: 400 });
     }
 
-    // steps は省略可だが、来ているなら配列であることを保証
-    const comboSteps: any[] = Array.isArray(steps) ? steps : [];
-    const comboTags: string[] = Array.isArray(tags) ? tags : [];
+    // タグ upsert（日本語でもOK。Tag.name が unique 前提）
+    const uniqTags = Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1) Combo 本体
-      const combo = await tx.combo.create({
-        data: {
-          userId: user.id,
-          characterId,
-          playStyle,
-          comboText,
-          damage: damage ?? null,
-          frame: frame ?? null,
-          conditionId: conditionId ?? 1, // デフォルト通常ヒットなどにしたい場合
-          attributeId: attributeId ?? null,
-          version: version ?? "1.00",
-          description: description ?? null,
-          videoUrl: videoUrl ?? null,
-          driveCost: driveCost ?? 0,
-          superCost: superCost ?? 0,
-          parentComboId: parentComboId ?? null,
-        },
+    const tagIds: number[] = [];
+    for (const name of uniqTags) {
+      const tag = await prisma.tag.upsert({
+        where: { name },
+        update: {},
+        create: { name },
+        select: { id: true },
       });
+      tagIds.push(tag.id);
+    }
 
-      // 2) コンボ手順（ある場合）
-      if (comboSteps.length > 0) {
-        await tx.comboStep.createMany({
-          data: comboSteps.map((s, index) => ({
-            comboId: combo.id,
-            order: s.order ?? index + 1,
-            moveId: s.moveId ?? null,
-            attributeId: s.attributeId ?? null,
-            note: s.note ?? null,
+    const created = await prisma.combo.create({
+      data: {
+        userId: user.id,
+        characterId,
+        conditionId,
+        attributeId,
+        playStyle,
+        comboText,
+        damage,
+        frame, // ★ 追加：完走後フレーム（不利も可）
+        description,
+        driveCost: Number.isFinite(driveCost) ? Math.max(0, driveCost) : 0,
+        superCost: Number.isFinite(superCost) ? Math.max(0, superCost) : 0,
+
+        steps: {
+          create: steps.map((s) => ({
+            order: Number(s.order),
+            moveId: s.moveId === null || s.moveId === undefined ? null : Number(s.moveId),
+            attributeId: s.attributeId === null || s.attributeId === undefined ? null : Number(s.attributeId),
+            note: s.note === null || s.note === undefined ? null : String(s.note),
           })),
-        });
-      }
+        },
 
-      // 3) タグ（ある場合）
-      if (comboTags.length > 0) {
-        const tagRecords = await Promise.all(
-          comboTags.map((name) =>
-            tx.tag.upsert({
-              where: { name },
-              update: {},
-              create: { name },
-            })
-          )
-        );
-
-        await tx.comboTag.createMany({
-          data: tagRecords.map((t) => ({
-            comboId: combo.id,
-            tagId: t.id,
+        tags: {
+          create: tagIds.map((id) => ({
+            tag: { connect: { id } },
           })),
-          skipDuplicates: true,
-        });
-      }
-
-      return combo;
+        },
+      },
+      select: { id: true },
     });
 
-    return NextResponse.json({ success: true, combo: result });
+    return NextResponse.json({ success: true, comboId: created.id });
   } catch (error) {
-    console.error("コンボ投稿エラー", error);
-    return NextResponse.json(
-      { success: false, error: "コンボ登録中にサーバーエラーが発生しました。" },
-      { status: 500 }
-    );
+    console.error("POST /api/combos/create error:", error);
+    return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
   }
 }

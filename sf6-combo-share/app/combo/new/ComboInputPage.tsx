@@ -70,6 +70,9 @@ export default function ComboInputPage() {
   // ▼ ダメージ
   const [damage, setDamage] = useState<string>("");
 
+  // ▼ コンボ完走後フレーム（+3 / -2 / 0 など。空なら未入力）
+  const [advFrame, setAdvFrame] = useState<string>("");
+
   // ▼ 備考（筆者コメント）
   const [note, setNote] = useState<string>("");
 
@@ -90,7 +93,7 @@ export default function ComboInputPage() {
   };
 
   // ▼ カテゴリ（1つだけ選択）
-  const categoryOptions = ["CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
+  const categoryOptions = ["ノーゲージコンボ", "CRコン", "ODコン", "PRコン", "リーサルコン", "対空コン"] as const;
   const [selectedCategory, setSelectedCategory] = useState<string>("");
 
   // ▼ 属性タグ（複数選択）
@@ -226,6 +229,20 @@ export default function ComboInputPage() {
       if (n.includes("SA3")) superCost += 3;
     });
 
+    // ▼ 完走後フレーム（整数のみ。空は null）
+    const frameStr = advFrame.trim();
+    if (frameStr !== "" && !/^[+-]?\d+$/.test(frameStr)) {
+      alert("完走後フレームは整数で入力してください（例: +3 / -2 / 0）");
+      return;
+    }
+    const frame = frameStr === "" ? null : Number(frameStr);
+
+    // ▼ 「ノーゲージコンボ」＝ Drive消費0
+    if (selectedCategory === "ノーゲージコンボ" && driveCost !== 0) {
+      alert("ノーゲージコンボにするには、DR/DI/OD/CR を含めないでください（Drive消費0）。");
+      return;
+    }
+
     const steps = history.map((item, index) => ({
       order: index + 1,
       moveId: item.moveId,
@@ -237,7 +254,7 @@ export default function ComboInputPage() {
     const tags = [
       hitType, // ヒット状況
       ...selectedAttributes, // ダメ重視/起き攻め重視/運び重視
-      selectedCategory, // カテゴリ（CRコン など）※1つだけ
+      selectedCategory, // カテゴリ（ノーゲージコンボ など）※1つだけ
       ...selectedPropertyTags, // 立ち限定 など
     ].filter(Boolean);
 
@@ -248,9 +265,10 @@ export default function ComboInputPage() {
       playStyle: playStyle === "モダン" ? "MODERN" : "CLASSIC",
       comboText, // ★ 正規化済み
       damage: Number(damage) || null,
+      frame, // ★ 追加：完走後フレーム（不利も可）
       steps,
       tags,
-      starterText, // ★ 正規化済み
+      starterText, // ★ 正規化済み（DBに保存していないならサーバ側で無視される想定）
       driveCost,
       superCost,
       description: note || null, // ★ 備考を description として送信
@@ -284,7 +302,7 @@ export default function ComboInputPage() {
 
   return (
     <div style={{ padding: "20px", maxWidth: "1500px", margin: "0 auto" }}>
-      <h1 style={{ marginBottom: "10px" }}>コンボ入力画面（完全強化版）</h1>
+      <h1 style={{ marginBottom: "10px" }}>コンボ入力画面</h1>
 
       {/* 上段 UI */}
       <div
@@ -510,10 +528,11 @@ export default function ComboInputPage() {
             </button>
           </div>
 
+          {/* はみ出し対策：幅に追従する6列グリッド */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(6, 60px)",
+              gridTemplateColumns: "repeat(6, minmax(56px, 1fr))",
               gap: "8px",
               marginBottom: "20px",
             }}
@@ -524,7 +543,7 @@ export default function ComboInputPage() {
                 onClick={() => add(b)}
                 style={{
                   padding: "6px",
-                  width: "60px",
+                  width: "100%",
                   height: "40px",
                   borderRadius: "6px",
                   border: "1px solid gray",
@@ -546,6 +565,22 @@ export default function ComboInputPage() {
             style={{
               padding: "6px",
               width: "120px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              fontSize: "16px",
+            }}
+          />
+
+          {/* 完走後フレーム */}
+          <h4 style={{ marginTop: "12px" }}>完走後フレーム</h4>
+          <input
+            type="text"
+            value={advFrame}
+            onChange={(e) => setAdvFrame(e.target.value)}
+          
+            style={{
+              padding: "6px",
+              width: "140px",
               borderRadius: "6px",
               border: "1px solid #ccc",
               fontSize: "16px",
