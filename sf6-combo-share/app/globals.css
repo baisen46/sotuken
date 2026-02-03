@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 背景を “真っ白” から少しだけトーンダウン（発表用に見栄えが良い） */
+  --background: #f9fafb; /* gray-50 */
+  --foreground: #111827; /* gray-900 */
 }
 
 @theme inline {
@@ -19,8 +20,67 @@
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiryo,
+      Arial, sans-serif;
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl p-6;
+  }
+
+  .card {
+    @apply bg-white border border-gray-200 rounded-2xl shadow-sm;
+  }
+
+  .card-pad {
+    @apply card p-4;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-1 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm hover:bg-gray-800;
+  }
+
+  .link {
+    @apply text-blue-600 hover:underline;
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs text-gray-700;
+  }
+
+  .chip-active {
+    @apply bg-gray-200;
+  }
+
+  .table-wrap {
+    @apply card overflow-x-auto;
+  }
+
+  .table {
+    @apply w-full text-sm;
+  }
+
+  .th {
+    @apply bg-gray-50 text-gray-700 font-medium border-b px-3 py-2 text-left;
+  }
+
+  .td {
+    @apply border-b px-3 py-2 align-top;
+  }
+
+  .tr {
+    @apply hover:bg-gray-50;
+  }
 }

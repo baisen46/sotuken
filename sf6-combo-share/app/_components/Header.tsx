@@ -26,9 +26,7 @@ export default async function Header() {
         {/* 左：ロゴ */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Link href="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <div style={{ fontWeight: "bold", fontSize: "18px" }}>
-              SF6 Combo Share
-            </div>
+            <div style={{ fontWeight: "bold", fontSize: "18px" }}>SF6 Combo Share</div>
             <div
               style={{
                 fontSize: "11px",
@@ -53,28 +51,9 @@ export default async function Header() {
           <Link href="/" style={{ textDecoration: "none", color: "#333" }}>
             ホーム
           </Link>
-          <Link
-            href="/combos"
-            style={{ textDecoration: "none", color: "#333" }}
-          >
-            コンボ一覧
-          </Link>
-          <Link
-            href="/combos/search"
-            style={{ textDecoration: "none", color: "#333" }}
-          >
-            コンボ検索
-          </Link>
-          <Link
-            href="/characters"
-            style={{ textDecoration: "none", color: "#333" }}
-          >
-            キャラ一覧
-          </Link>
-          <Link
-            href="/tori-kore"
-            style={{ textDecoration: "none", color: "#333" }}
-          >
+   
+    
+          <Link href="/torikore" style={{ textDecoration: "none", color: "#333" }}>
             とりコレ
           </Link>
         </nav>
@@ -150,13 +129,8 @@ export default async function Header() {
                 fontSize: "12px",
               }}
             >
-              <span style={{ color: "#333" }}>
-                こんにちは、{user.name ?? "ユーザー"} さん
-              </span>
-              <Link
-                href="/mypage"
-                style={{ textDecoration: "none", color: "#2b74ff" }}
-              >
+              <span style={{ color: "#333" }}>こんにちは、{user.name ?? "ユーザー"} さん</span>
+              <Link href="/mypage" style={{ textDecoration: "none", color: "#2b74ff" }}>
                 マイページ
               </Link>
               <form action="/api/auth/logout" method="POST">
@@ -184,10 +158,7 @@ export default async function Header() {
                 fontSize: "12px",
               }}
             >
-              <Link
-                href="/login"
-                style={{ textDecoration: "none", color: "#2b74ff" }}
-              >
+              <Link href="/login" style={{ textDecoration: "none", color: "#2b74ff" }}>
                 ログイン
               </Link>
               {/* 必要になったら新規登録を追加 */}

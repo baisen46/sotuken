@@ -1,164 +1,120 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { starterFromComboText } from "@/lib/notation";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-type SP =
-  | Record<string, string | string[] | undefined>
-  | Promise<Record<string, string | string[] | undefined>>;
+// ★ このページも「params は Promise」の形式に合わせる
+export default async function CharacterCombosPage(props: { params: Promise<{ id: string }> }) {
+  const { id } = await props.params;
+  const characterId = Number(id);
 
-function first(v: string | string[] | undefined) {
-  return Array.isArray(v) ? v[0] : v;
-}
-
-function buildHref(
-  basePath: string,
-  current: Record<string, string>,
-  patch: Record<string, string | null>
-) {
-  const usp = new URLSearchParams(current);
-  for (const [k, v] of Object.entries(patch)) {
-    if (v === null) usp.delete(k);
-    else usp.set(k, v);
-  }
-  const qs = usp.toString();
-  return qs ? `${basePath}?${qs}` : basePath;
-}
-
-function sortNextDir(currentSort: string, currentDir: string, nextSort: string) {
-  if (currentSort !== nextSort) return "desc";
-  return currentDir === "asc" ? "desc" : "asc";
-}
-
-function sortMark(currentSort: string, currentDir: string, col: string) {
-  if (currentSort !== col) return "";
-  return currentDir === "asc" ? " ▲" : " ▼";
-}
-
-type SortKey = "created" | "damage" | "drive" | "super";
-type Dir = "asc" | "desc";
-
-export default async function CombosPage(props: { searchParams?: SP }) {
-  const sp = (await (props.searchParams as any)) ?? {};
-
-  const sortRaw = (first(sp.sort) ?? "created") as SortKey;
-  const sort: SortKey =
-    sortRaw === "damage" || sortRaw === "drive" || sortRaw === "super" ? sortRaw : "created";
-
-  const dir: Dir = (first(sp.dir) ?? "desc") === "asc" ? "asc" : "desc";
-
-  const currentParams: Record<string, string> = { sort, dir };
-
-  const th = (label: string, col: SortKey) => {
-    const nextDir = sortNextDir(sort, dir, col);
-    const href = buildHref("/combos", currentParams, { sort: col, dir: nextDir });
+  if (!Number.isFinite(characterId)) {
     return (
-      <Link href={href} className="hover:underline">
-        {label}
-        {sortMark(sort, dir, col)}
-      </Link>
+      <div className="container-page">
+        <div className="card-pad">
+          キャラIDが不正です。 <Link href="/" className="link">キャラ選択に戻る</Link>
+        </div>
+      </div>
     );
-  };
+  }
 
-  const orderBy =
-    sort === "created"
-      ? [{ createdAt: dir }, { id: "desc" as const }]
-      : sort === "damage"
-      ? [{ damage: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
-      : sort === "drive"
-      ? [{ driveCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }]
-      : [{ superCost: dir }, { createdAt: "desc" as const }, { id: "desc" as const }];
-
-  const items = await prisma.combo.findMany({
-    where: {
-      deletedAt: null,
-      isPublished: true,
-    },
+  const combos = await prisma.combo.findMany({
+    where: { characterId, deletedAt: null, isPublished: true },
     include: {
-      character: { select: { id: true, name: true } },
       tags: { include: { tag: true } },
+      steps: { include: { move: true } },
+      attribute: true,
+      character: true,
     },
-    orderBy: orderBy as any,
-    take: 200,
+    orderBy: { damage: "desc" },
   });
 
+  if (combos.length === 0) {
+    return (
+      <div className="container-page space-y-4">
+        <h1 className="text-2xl font-bold">キャラID {characterId} のコンボ一覧</h1>
+        <div className="card-pad space-y-2">
+          <p>このキャラのコンボはまだ登録されていません。</p>
+          <Link href="/" className="link">
+            キャラ選択に戻る
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const characterName = combos[0].character.name;
+
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">全コンボ一覧</h1>
-        <Link href="/combos/search" className="text-sm text-blue-600 hover:underline">
-          検索へ →
+    <div className="container-page space-y-6">
+      <div className="flex items-end justify-between gap-3">
+        <h1 className="text-2xl font-bold">{characterName} のコンボ一覧</h1>
+        <Link href="/" className="link">
+          キャラ選択に戻る
         </Link>
       </div>
 
-      <table className="w-full border-collapse text-left text-sm">
-        <thead>
-          <tr className="border-b bg-gray-100 text-gray-700">
-            <th className="p-2">キャラ</th>
-            <th className="p-2">始動</th>
-            <th className="p-2">コンボ</th>
-            <th className="p-2">{th("作成", "created")}</th>
-            <th className="p-2">{th("ダメ", "damage")}</th>
-            <th className="p-2">{th("D", "drive")}</th>
-            <th className="p-2">{th("SA", "super")}</th>
-            <th className="p-2">タグ</th>
-            <th className="p-2">詳細</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {items.map((combo) => {
-            const starter = starterFromComboText(combo.comboText ?? "");
-            const tags = combo.tags?.map((t) => t.tag.name) ?? [];
-
-            return (
-              <tr key={combo.id} className="border-b hover:bg-gray-50">
-                <td className="p-2">{combo.character?.name ?? "-"}</td>
-                <td className="p-2 font-bold">{starter}</td>
-                <td className="p-2">
-                  <div
-                    className="max-w-[520px]"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical" as any,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {combo.comboText}
-                  </div>
-                </td>
-                <td className="p-2">{new Date(combo.createdAt).toLocaleDateString("ja-JP")}</td>
-                <td className="p-2 font-bold">{combo.damage ?? "-"}</td>
-                <td className="p-2">{combo.driveCost ?? 0}</td>
-                <td className="p-2">{combo.superCost ?? 0}</td>
-                <td className="p-2 space-x-1">
-                  {tags.slice(0, 4).map((name) => (
-                    <span key={name} className="inline-block bg-gray-200 px-2 py-1 rounded text-xs">
-                      {name}
-                    </span>
-                  ))}
-                  {tags.length > 4 && <span className="text-xs text-gray-500">+{tags.length - 4}</span>}
-                </td>
-                <td className="p-2">
-                  <Link href={`/combos/${combo.id}`} className="text-blue-600 hover:underline">
-                    →
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
-
-          {items.length === 0 && (
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
             <tr>
-              <td colSpan={9} className="p-6 text-center text-gray-500">
-                まだコンボがありません。
-              </td>
+              <th className="th">カテゴリ</th>
+              <th className="th">始動技</th>
+              <th className="th">ダメージ</th>
+              <th className="th">OD消費</th>
+              <th className="th">SA消費</th>
+              <th className="th">タグ</th>
+              <th className="th">詳細</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+
+          <tbody>
+            {combos.map((combo) => {
+              const starter = combo.steps[0]?.move?.name || combo.steps[0]?.note || "-";
+
+              let od = 0;
+              let sa = 0;
+
+              combo.steps.forEach((s) => {
+                const note = s.note || "";
+
+                if (note.includes("OD")) od += 2;
+                if (note.includes("DR")) od += 1;
+                if (note.includes("DI")) od += 1;
+                if (note.includes("CR")) od += 3;
+
+                if (note.includes("SA1")) sa += 1;
+                if (note.includes("SA2")) sa += 2;
+                if (note.includes("SA3")) sa += 3;
+              });
+
+              return (
+                <tr key={combo.id} className="tr">
+                  <td className="td">{combo.attribute?.type || "-"}</td>
+                  <td className="td">{starter}</td>
+                  <td className="td font-bold">{combo.damage ?? "-"}</td>
+                  <td className="td">{od}</td>
+                  <td className="td">{sa}</td>
+                  <td className="td">
+                    <div className="flex flex-wrap gap-1">
+                      {combo.tags.map((t) => (
+                        <span key={t.tag.id} className="chip">
+                          {t.tag.name}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="td">
+                    <Link href={`/combos/${combo.id}`} className="link">
+                      →
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
